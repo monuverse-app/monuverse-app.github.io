@@ -634,16 +634,19 @@ async function storyBlob() {
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   x.fillStyle = '#fff'; for (let i = 0; i < 140; i++) { x.globalAlpha = .25 + rnd() * .6; x.beginPath(); x.arc(rnd() * W, rnd() * H * .7, rnd() * 2.2 + .4, 0, 7); x.fill(); } x.globalAlpha = 1;
   x.textAlign = 'center'; x.textBaseline = 'alphabetic';
-  x.font = '800 52px Unbounded, sans-serif'; x.fillStyle = '#EEF2FA'; x.fillText('MONU', W / 2 - 92, 150); x.fillStyle = '#F5B841'; x.fillText('VERSE', W / 2 + 112, 150);
-  x.font = '600 38px Figtree, sans-serif'; x.fillStyle = '#8F9CB7'; x.fillText('Je collectionne', W / 2, 270);
+  const logo = await new Promise(res => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = 'icons/logo.jpg'; });
+  const rr0 = (X, Y, w, h, rad) => { x.beginPath(); x.moveTo(X + rad, Y); x.arcTo(X + w, Y, X + w, Y + h, rad); x.arcTo(X + w, Y + h, X, Y + h, rad); x.arcTo(X, Y + h, X, Y, rad); x.arcTo(X, Y, X + w, Y, rad); x.closePath(); };
+  if (logo) { const lw = 250, lh = lw * logo.height / logo.width, lx = (W - lw - 36) / 2; x.fillStyle = '#fff'; rr0(lx, 56, lw + 36, lh + 28, 34); x.fill(); x.drawImage(logo, lx + 18, 70, lw, lh); }
+  else { x.font = '800 52px Unbounded, sans-serif'; x.fillStyle = '#EEF2FA'; x.fillText('MONUVERSE', W / 2, 150); }
+  x.font = '600 38px Figtree, sans-serif'; x.fillStyle = '#8F9CB7'; x.fillText('Je collectionne', W / 2, 400);
   // nom de la ville sur 1 ou 2 lignes
   let fs = 104; x.font = `800 ${fs}px Unbounded, sans-serif`;
   const words = c.name.split(/(?<=[\s-])/); const lines = []; let cur = '';
   for (const w of words) { if (x.measureText(cur + w).width > W - 140 && cur) { lines.push(cur); cur = w; } else cur += w; }
   lines.push(cur); while (lines.length > 2) { fs -= 10; x.font = `800 ${fs}px Unbounded, sans-serif`; lines.splice(0, lines.length, c.name); }
   while (x.measureText(lines.reduce((a, b) => a.length > b.length ? a : b)).width > W - 120 && fs > 50) { fs -= 6; x.font = `800 ${fs}px Unbounded, sans-serif`; }
-  x.fillStyle = '#EEF2FA'; lines.forEach((l, i) => x.fillText(l.trim(), W / 2, 390 + i * (fs + 14)));
-  const top = 390 + (lines.length - 1) * (fs + 14);
+  x.fillStyle = '#EEF2FA'; lines.forEach((l, i) => x.fillText(l.trim(), W / 2, 515 + i * (fs + 14)));
+  const top = 515 + (lines.length - 1) * (fs + 14);
   // anneau
   const cx = W / 2, cy = top + 330, r = 210, p = pct(c);
   x.lineWidth = 34; x.lineCap = 'round'; x.strokeStyle = 'rgba(255,255,255,.08)'; x.beginPath(); x.arc(cx, cy, r, 0, 7); x.stroke();

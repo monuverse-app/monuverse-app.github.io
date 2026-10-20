@@ -1,6 +1,6 @@
 /* Hors ligne : l'appli s'ouvre même sans réseau. Les données de la carte et du classement restent en ligne. */
-const CACHE = 'monuverse-v1-4';
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'lib/d3.min.js'];
+const CACHE = 'monuverse-v1-5';
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'config.js', 'manifest.webmanifest', 'icons/logo.jpg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png', 'lib/d3.min.js'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
