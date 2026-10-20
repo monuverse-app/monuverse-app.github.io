@@ -1,0 +1,88 @@
+name: Données des pays les plus visités
+
+# Prépare les lieux de toutes les communes des pays les plus visités au monde
+# (classement ONU Tourisme 2024) et d'Europe, un pays à la fois, dans l'ordre.
+# S'arrête avant de dépasser 950 Mo de données (limite de GitHub Pages : 1 Go).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 4 2 * *'   # le 2 de chaque mois, après la France
+
+permissions:
+  contents: write
+
+concurrency:
+  group: donnees-monde
+  cancel-in-progress: false
+
+jobs:
+  pays:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - { cc: ES, nom: Espagne,     geo: europe/spain,          niveau: 8 }
+          - { cc: IT, nom: Italie,      geo: europe/italy,          niveau: 8 }
+          - { cc: TR, nom: Turquie,     geo: europe/turkey,         niveau: 6 }
+          - { cc: GB, nom: Royaume-Uni, geo: europe/great-britain,  niveau: 8 }
+          - { cc: GR, nom: Grèce,       geo: europe/greece,         niveau: 7 }
+          - { cc: AT, nom: Autriche,    geo: europe/austria,        niveau: 8 }
+          - { cc: HR, nom: Croatie,     geo: europe/croatia,        niveau: 7 }
+          - { cc: DE, nom: Allemagne,   geo: europe/germany,        niveau: 8 }
+          - { cc: NL, nom: Pays-Bas,    geo: europe/netherlands,    niveau: 8 }
+          - { cc: PT, nom: Portugal,    geo: europe/portugal,       niveau: 7 }
+          - { cc: MX, nom: Mexique,     geo: north-america/mexico,  niveau: 6 }
+          - { cc: JP, nom: Japon,       geo: asia/japan,            niveau: 7 }
+          - { cc: TH, nom: Thaïlande,   geo: asia/thailand,         niveau: 6 }
+          - { cc: CN, nom: Chine,       geo: asia/china,            niveau: 6 }
+          - { cc: US, nom: États-Unis,  geo: north-america/us,      niveau: 8 }
+    name: ${{ matrix.nom }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Place disponible ?
+        id: budget
+        run: |
+          git pull -q origin main || true
+          used=$(du -sb --exclude=.git . | cut -f1)
+          [ -d "data/${{ matrix.cc }}" ] && used=$((used - $(du -sb data/${{ matrix.cc }} | cut -f1)))
+          echo "Utilisé hors ce pays : $((used/1000000)) Mo"
+          echo "used=$used" >> "$GITHUB_OUTPUT"
+          if [ "$used" -gt 850000000 ]; then echo "Budget presque atteint : ${{ matrix.nom }} est ignoré."; echo "skip=1" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Outils
+        if: steps.budget.outputs.skip != '1'
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q osmium-tool
+          pip install --quiet shapely==2.0.6
+
+      - name: Télécharger la carte
+        if: steps.budget.outputs.skip != '1'
+        run: |
+          sudo mkdir -p /mnt/osm && sudo chown "$USER" /mnt/osm
+          curl -fsSL --retry 3 -o /mnt/osm/pays.osm.pbf "https://download.geofabrik.de/${{ matrix.geo }}-latest.osm.pbf"
+          ls -lh /mnt/osm
+
+      - name: Construire
+        if: steps.budget.outputs.skip != '1'
+        run: python3 outils/construire_pays.py /mnt/osm/pays.osm.pbf ${{ matrix.cc }} ${{ matrix.niveau }} data/$(echo ${{ matrix.cc }} | tr A-Z a-z)
+
+      - name: Publier
+        if: steps.budget.outputs.skip != '1'
+        run: |
+          d=data/$(echo ${{ matrix.cc }} | tr A-Z a-z)
+          size=$(du -sb $d | cut -f1)
+          echo "${{ matrix.nom }} : $((size/1000000)) Mo"
+          if [ $(( ${{ steps.budget.outputs.used }} + size )) -gt 950000000 ]; then echo "Trop gros pour la place restante : ${{ matrix.nom }} n'est pas publié."; exit 0; fi
+          git config user.name "Monuverse"
+          git config user.email "noreply@monuverse-app.github.io"
+          git add -A "$d"
+          if git diff --cached --quiet; then echo "Aucun changement"; exit 0; fi
+          git commit -q -m "Données ${{ matrix.nom }} : mise à jour $(date -u +%Y-%m-%d)"
+          for i in 1 2 3 4 5; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 15; done
+          exit 1

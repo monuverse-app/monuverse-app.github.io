@@ -351,3 +351,8 @@ a.btn { text-decoration: none; }
 :root[data-theme="light"] .spinner { border-color: var(--line); border-top-color: var(--sea); }
 @media (min-width: 520px) { :root[data-theme="light"] body { background: #E6EAF2; } }
 .seg.three { grid-template-columns: repeat(3, 1fr); margin: 0; }
+
+.nav-wrap { display: grid; gap: 8px; }
+.nav-pick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.nav-pick .btn { min-height: 46px; padding: 10px 6px; font-size: 13.5px; }
+.nav-pick .btn:first-child { border-color: var(--sea); }

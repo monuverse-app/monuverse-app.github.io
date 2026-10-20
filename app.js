@@ -184,12 +184,27 @@ function overpassQuery(city) {
   ];
   return `[out:json][timeout:60];${scope}(${sel.map(s => `nwr${filt}${s};`).join('')});out center tags 1500;`;
 }
+/* Pays préparés à l'avance (data/<pays>/) : on retrouve la commune, sinon on cherche en direct */
+const idxP = {};
+const loadIdx = cc => idxP[cc] || (idxP[cc] = fetch(`data/${cc.toLowerCase()}/communes.json`).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(j => { j.norm = j.communes.map(c => nrm(c[1])); return j; }).catch(e => { delete idxP[cc]; throw e; }));
+async function preparedFile(c) {
+  if (c.insee) return { path: `data/fr/${c.insee}.json`, check: () => loadFR() };
+  if (!c.cc || c.cc === 'FR') return null;
+  let j; try { j = await loadIdx(c.cc); } catch (e) { return null; }
+  const rid = c.osmType === 'relation' ? 'r' + c.osmId : null, v = nrm(c.name);
+  let row = rid && j.communes.find(r => r[0] === rid);
+  if (!row) row = j.communes.filter((r, i) => j.norm[i] === v).sort((a, b) => dist(c, { lat: a[2], lon: a[3] }) - dist(c, { lat: b[2], lon: b[3] }))[0];
+  if (row && dist(c, { lat: row[2], lon: row[3] }) > 25000) row = null;
+  return row ? { path: `data/${c.cc.toLowerCase()}/${row[0]}.json`, empty: !row[6], region: row[4] } : null;
+}
 async function fetchPlaces(city) {
-  if (city.insee) {
+  const pf = await preparedFile(city);
+  if (pf) {
     try {
-      const r = await fetch(`data/fr/${city.insee}.json`);
-      if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.places)) return j.places; }
-      if (r.status === 404 && (await loadFR().then(() => true, () => false))) return [];
+      const r = await fetch(pf.path);
+      if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.places)) { if (pf.region && !city.dep) city.dep = pf.region; return j.places; } }
+      if (r.status === 404 && (pf.empty || (pf.check && await pf.check().then(() => true, () => false)))) return [];
     } catch (e) {}
   }
   const body = 'data=' + encodeURIComponent(overpassQuery(city));
@@ -475,18 +490,41 @@ function cardHTML(c, p, photo, reveal) {
     <div class="nm">${esc(p.n)}</div>
     <div class="fact">${KINDS[p.k][4]}</div></div></div>`;
 }
+/* ---------- Itinéraire : Plans (iPhone), Google Maps ou Waze ---------- */
+const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+function navApps(p) {
+  const ll = `${p.lat},${p.lon}`;
+  const apps = [
+    ['plans', 'Plans', `https://maps.apple.com/?daddr=${ll}&dirflg=w`],
+    ['google', 'Google Maps', `https://www.google.com/maps/dir/?api=1&destination=${ll}&travelmode=walking`],
+    ['waze', 'Waze', `https://waze.com/ul?ll=${ll}&navigate=yes`]
+  ];
+  const order = IOS ? ['plans', 'google', 'waze'] : ['google', 'waze', 'plans'];
+  if (S.nav && order.includes(S.nav)) order.sort((a, b) => (b === S.nav) - (a === S.nav));
+  return order.map(k => apps.find(a => a[0] === k));
+}
+function navHTML(p, label = 'Y aller') {
+  return `<button class="btn ghost nav-toggle" type="button" aria-expanded="false">${label}</button>
+    <div class="nav-pick" hidden>${navApps(p).map(([k, l, u]) => `<a class="btn ghost" data-nav="${k}" href="${u}" target="_blank" rel="noopener">${l}</a>`).join('')}</div>`;
+}
+function bindNav(root) {
+  root.querySelectorAll('.nav-toggle').forEach(b => b.onclick = () => { const pick = b.nextElementSibling; pick.hidden = !pick.hidden; b.setAttribute('aria-expanded', !pick.hidden); });
+  root.querySelectorAll('[data-nav]').forEach(a => a.addEventListener('click', () => { S.nav = a.dataset.nav; save(); }));
+}
+
 async function openPlace(id) {
   const c = city(), p = c.places.find(x => x.id === id); if (!p) return;
   const g = got(c, p), here = fresh() ? GPS.pos : null, photo = g ? await PhotoDB.url(p.id) : null;
   const d = here ? dist(here, p) : null, near = here && inRange(p, here);
-  const maps = `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}&travelmode=walking`;
   const s = sheet(`<div class="tag">${g ? 'Dans ta collection' : 'À découvrir'}</div>
     ${cardHTML(c, p, photo)}
     ${g ? `<p>Débloqué le ${new Date(c.scanned[p.id].t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}.</p>`
       : `<p>${d !== null ? `À ${distTxt(d)}, vers le ${cardinal(bearing(here, p))}. ` : ''}Approche-toi à moins de ${p.rad} m pour le débloquer.</p>`}
     ${!g && near ? `<button class="btn sea" id="pl-scan">Débloquer ce lieu</button>` : ''}
     ${g && !photo ? `<button class="btn ghost" id="pl-photo">Ajouter ma photo souvenir</button>` : ''}
-    <div class="row2"><a class="btn ghost" href="${maps}" target="_blank" rel="noopener">Y aller</a>${p.w ? `<a class="btn ghost" href="${p.w}" target="_blank" rel="noopener">En savoir plus</a>` : '<button class="btn ghost" data-close>Fermer</button>'}</div>`);
+    <div class="nav-wrap">${navHTML(p)}</div>
+    <div class="row2">${p.w ? `<a class="btn ghost" href="${p.w}" target="_blank" rel="noopener">En savoir plus</a>` : ''}<button class="btn ghost" data-close ${p.w ? '' : 'style="grid-column:1/-1"'}>Fermer</button></div>`);
+  bindNav(s);
   if ($('#pl-scan')) $('#pl-scan').onclick = () => unlock(p);
   if ($('#pl-photo')) $('#pl-photo').onclick = async () => { const f = await askPhoto(); if (!f) return; try { await PhotoDB.put(p.id, await shrink(f)); s.remove(); openPlace(p.id); refresh(); } catch (e) { toast("La photo n'a pas pu être enregistrée.", true); } };
 }
@@ -538,7 +576,7 @@ let scanSub = null;
 function renderScan() {
   const c = city(); if (!c) return;
   header();
-  if (!scanSub) { let lastR = 0; scanSub = () => { nearBadge(); if (tab === 'scan' && !document.querySelector('.sheet') && Date.now() - lastR > 2500) { lastR = Date.now(); renderScan(); } }; GPS.subs.add(scanSub); }
+  if (!scanSub) { let lastR = 0; scanSub = () => { nearBadge(); if (tab === 'scan' && !document.querySelector('.sheet') && !document.querySelector('#s-scan .nav-pick:not([hidden])') && Date.now() - lastR > 2500) { lastR = Date.now(); renderScan(); } }; GPS.subs.add(scanSub); }
   const el = $('#s-scan');
   if (GPS.err === 'denied' || GPS.err === 'none') {
     el.innerHTML = `<div class="gps bad"><i></i><div><b>GPS désactivé</b><br><span>Monuverse a besoin de ta position pour vérifier que tu es devant un lieu.</span></div></div>
@@ -573,10 +611,11 @@ function renderScan() {
       <div class="row"><span class="ic">${shape(KINDS[near.p.k][1])}</span><div><span class="eyebrow">${ir ? 'Tu y es' : 'Le plus proche'}</span><b>${esc(near.p.n)}</b><span>${KINDS[near.p.k][0]} · ${RAR[near.p.r][0]}${daily === near.p ? ' · lieu du jour ×2' : ''}</span></div></div>
       ${ir ? `<button class="btn sea" id="sc-go">Débloquer ce lieu</button>`
         : `<div class="dir"><span style="display:inline-flex;transform:rotate(${bearing(me, near.p).toFixed(0)}deg)">${ARROW}</span><div><b>${distTxt(near.d)}</b> vers le ${cardinal(bearing(me, near.p))}<br><span>Débloquable à moins de ${near.p.rad} m</span></div></div>
-           <a class="btn ghost" href="https://www.google.com/maps/dir/?api=1&destination=${near.p.lat},${near.p.lon}&travelmode=walking" target="_blank" rel="noopener">Itinéraire à pied</a>`}
+           <div class="nav-wrap">${navHTML(near.p, 'Itinéraire à pied')}</div>`}
     </div>` : `<div class="empty">Tu as débloqué tous les lieux de ${esc(c.name)} ! Change de ville pour continuer.</div>`}
     ${near && near.d > 20000 ? `<p class="fine" style="margin-top:12px">Tu sembles loin de ${esc(c.name)}. Touche le nom de la ville en haut pour collectionner la ville où tu te trouves.</p>` : ''}`;
   if ($('#sc-go')) $('#sc-go').onclick = () => unlock(near.p);
+  bindNav(el);
   $$('#s-scan [data-p]').forEach(g => { g.onclick = () => openPlace(g.dataset.p); g.onkeydown = e => { if (e.key === 'Enter') openPlace(g.dataset.p); }; });
 }
 function nearBadge() {
