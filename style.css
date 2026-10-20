@@ -280,3 +280,69 @@ a.btn { text-decoration: none; }
 .gfocus { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; background: var(--panel); border: 1px solid var(--sea); border-radius: 16px; padding: 10px 12px; margin: 4px 0 6px; }
 .gfocus b { font-size: 15px; } .gfocus span { font-size: 12.5px; color: var(--muted); grid-column: 1; }
 .gfocus button { grid-row: 1 / 3; grid-column: 2; border: 0; border-radius: 12px; background: var(--gold); color: #2A1B00; font-weight: 700; font-size: 13px; padding: 10px 12px; }
+
+/* ================= Mode clair =================
+   Même identité : l'or reste ce qu'on possède, l'aqua l'action d'explorer ; le ciel devient une aube. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --night: #F3F5FA;
+  --panel: #FFFFFF;
+  --panel-2: #EDF1F8;
+  --line: #D8DFEB;
+  --ink: #0E1A33;
+  --muted: #56647E;
+  --gold: #E8A526;
+  --gold-hi: #FFD77A;
+  --gold-ink: #9A6206;
+  --sea: #12A899;
+  --sea-ink: #032A26;
+  --aurora: #7D6BEF;
+  --danger: #C8402C;
+  --r-commune: #697891;
+  --r-rare: #2C6FCC;
+  --r-epique: #8447D6;
+  --r-legendaire: #C2860E;
+}
+:root[data-theme="light"] .app { background: radial-gradient(60% 35% at 85% 4%, rgba(125,107,239,.14), transparent 70%), radial-gradient(70% 40% at 8% 30%, rgba(18,168,153,.08), transparent 70%), var(--night); }
+:root[data-theme="light"] .app::after { opacity: 0; }
+:root[data-theme="light"] .btn.ghost, :root[data-theme="light"] .wel-card { background: var(--panel); }
+:root[data-theme="light"] .btn.gold { color: #2A1B00; }
+:root[data-theme="light"] .btn.sea { background: radial-gradient(circle at 30% 20%, #8FF2E6, #3FD3C2 60%, #16A595); }
+:root[data-theme="light"] .tabbar { background: rgba(255,255,255,.88); border-top-color: var(--line); }
+:root[data-theme="light"] .tab[aria-selected="true"]:not(.scan) svg { color: var(--gold-ink); }
+:root[data-theme="light"] .tab.scan .disc { background: radial-gradient(circle at 35% 30%, #8FF2E6, #3FD3C2 55%, #16A595); box-shadow: 0 8px 22px rgba(18,168,153,.35); }
+:root[data-theme="light"] .logo span, :root[data-theme="light"] .lb-row.me, :root[data-theme="light"] .lb-row.top .rk,
+:root[data-theme="light"] .daily.done .eyebrow, :root[data-theme="light"] .rewards span.hi, :root[data-theme="light"] .daily.done .ic { color: var(--gold-ink); }
+:root[data-theme="light"] .eyebrow, :root[data-theme="light"] .tag, :root[data-theme="light"] .link { color: #0B8478; }
+:root[data-theme="light"] .rewards span.hi { border-color: var(--gold); }
+:root[data-theme="light"] .hero { background: radial-gradient(120% 140% at 0% 0%, rgba(232,165,38,.16), transparent 60%), var(--panel); }
+:root[data-theme="light"] .daily { background: linear-gradient(135deg, rgba(18,168,153,.10), rgba(125,107,239,.08)), var(--panel); }
+:root[data-theme="light"] .daily.done { background: linear-gradient(135deg, rgba(232,165,38,.14), rgba(125,107,239,.06)), var(--panel); }
+:root[data-theme="light"] .daily .ic, :root[data-theme="light"] .pl .ic, :root[data-theme="light"] .target .ic, :root[data-theme="light"] .card .art {
+  background: radial-gradient(90% 90% at 50% 100%, color-mix(in srgb, var(--rc, var(--sea)) 22%, transparent), transparent 70%), var(--panel-2); }
+:root[data-theme="light"] .daily .ic { color: #0B8478; }
+:root[data-theme="light"] .daily .go { background: var(--sea); color: #fff; }
+:root[data-theme="light"] .pl.locked b { color: var(--ink); }
+:root[data-theme="light"] .bar, :root[data-theme="light"] .xpline .track { background: rgba(14,26,51,.08); }
+:root[data-theme="light"] .ring .tr { stroke: rgba(14,26,51,.08); }
+:root[data-theme="light"] .sheet { background: rgba(20,32,56,.32); }
+:root[data-theme="light"] .sheet-body { background: var(--night); }
+:root[data-theme="light"] .card-in { background: linear-gradient(170deg, #FFFFFF, var(--panel-2) 80%); }
+:root[data-theme="light"] .chip[aria-pressed="true"] { color: #2A1B00; }
+:root[data-theme="light"] .seg button[aria-pressed="true"] { background: var(--panel-2); box-shadow: inset 0 -2px 0 var(--gold-ink); }
+:root[data-theme="light"] .zoom button { background: rgba(255,255,255,.85); }
+:root[data-theme="light"] .radar .lbl { fill: var(--muted); }
+:root[data-theme="light"] .radar .rg { stroke: rgba(18,168,153,.25); }
+:root[data-theme="light"] .radar .dot circle { stroke: #fff; }
+:root[data-theme="light"] #globe .land { fill: #F7F9FC; stroke: #A9BAD3; }
+:root[data-theme="light"] #globe .land.visited { fill: var(--gold); stroke: #B57C0B; }
+:root[data-theme="light"] #globe .grat { stroke: rgba(20,50,100,.10); }
+:root[data-theme="light"] #globe .pin .bg { fill: #fff; stroke: rgba(194,134,14,.6); }
+:root[data-theme="light"] #globe .pin .tr { stroke: rgba(14,26,51,.12); }
+:root[data-theme="light"] #globe .pin .pr { stroke: var(--gold-ink); }
+:root[data-theme="light"] #globe .pin .lb { stroke: #fff; }
+:root[data-theme="light"] .gfocus button { color: #2A1B00; }
+:root[data-theme="light"] .streak-chip svg { color: #E2711D; }
+:root[data-theme="light"] .spinner { border-color: var(--line); border-top-color: var(--sea); }
+@media (min-width: 520px) { :root[data-theme="light"] body { background: #E6EAF2; } }
+.seg.three { grid-template-columns: repeat(3, 1fr); margin: 0; }

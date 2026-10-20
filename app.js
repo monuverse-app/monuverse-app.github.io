@@ -54,11 +54,20 @@ const KINDS = {
   belvedere: ['Point de vue', 'sky', 'rare', 60, "D'ici, la vue sur les environs vaut le détour."],
   attraction: ['Site à voir', 'place', 'rare', 80, "Un lieu que les habitants recommandent aux visiteurs."],
   parc: ['Parc', 'tree', 'commune', 150, "Un poumon vert pour se promener et respirer."],
-  patrimoine: ['Patrimoine', 'columns', 'rare', 60, "Un élément du patrimoine historique de la ville."]
+  patrimoine: ['Patrimoine', 'columns', 'rare', 60, "Un élément du patrimoine historique de la ville."],
+  bibliotheque: ['Bibliothèque', 'dome', 'rare', 50, "Livres, films, jeux : la culture ouverte à tous les habitants."],
+  culture: ['Lieu de culture', 'columns', 'rare', 60, "Théâtre, centre culturel ou salle de spectacle : la scène de la ville."],
+  gare: ['Gare', 'arch', 'rare', 90, "La porte d'entrée des voyageurs depuis l'arrivée du train."],
+  marche: ['Marché', 'place', 'commune', 70, "Le rendez-vous des habitants pour faire leurs courses et se croiser."],
+  kiosque: ['Kiosque', 'dome', 'rare', 40, "Autrefois, la fanfare y jouait le dimanche."],
+  horloge: ['Horloge', 'tower', 'commune', 30, "Elle donne l'heure aux passants depuis des années."],
+  jeux: ['Aire de jeux', 'tree', 'commune', 40, "Le terrain d'aventure des enfants du quartier."],
+  sport: ['Équipement sportif', 'place', 'commune', 100, "Stade, gymnase ou piscine : là où la ville fait du sport."],
+  salle: ['Lieu de vie', 'columns', 'commune', 50, "Un lieu de rencontre pour les associations et les habitants."]
 };
 const RAR = { commune: ['Commune', 10], rare: ['Rare', 25], epique: ['Épique', 50], legendaire: ['Légendaire', 100] };
 const RAR_ORDER = ['commune', 'rare', 'epique', 'legendaire'];
-const UNNAMED_OK = new Set(['fontaine', 'statue', 'oeuvre', 'fresque', 'aux_morts', 'croix', 'plaque', 'memorial', 'mairie', 'chateau_eau', 'moulin']);
+const UNNAMED_OK = new Set(['fontaine', 'statue', 'oeuvre', 'fresque', 'aux_morts', 'croix', 'plaque', 'memorial', 'mairie', 'chateau_eau', 'moulin', 'kiosque', 'horloge', 'jeux', 'marche']);
 
 function classify(t) {
   const h = t.historic, art = t.artwork_type, name = t.name || '';
@@ -66,6 +75,13 @@ function classify(t) {
   if (t.building === 'cathedral' || (t.amenity === 'place_of_worship' && /cath[ée]dral/i.test(name))) return 'cathedrale';
   if (t.amenity === 'place_of_worship') return 'culte';
   if (t.amenity === 'fountain') return 'fontaine';
+  if (t.amenity === 'library') return 'bibliotheque';
+  if (/^(theatre|arts_centre|cinema)$/.test(t.amenity)) return 'culture';
+  if (t.amenity === 'marketplace') return 'marche';
+  if (t.amenity === 'clock') return 'horloge';
+  if (t.amenity === 'community_centre') return 'salle';
+  if (t.railway === 'station' || t.public_transport === 'station') return 'gare';
+  if (t.leisure === 'bandstand') return 'kiosque';
   if (t.tourism === 'museum') return 'musee';
   if (h === 'memorial') {
     if (t.memorial === 'war_memorial') return 'aux_morts';
@@ -89,7 +105,10 @@ function classify(t) {
   if (t.man_made === 'water_tower') return 'chateau_eau';
   if (t.tourism === 'viewpoint') return 'belvedere';
   if (/^(attraction|gallery)$/.test(t.tourism)) return 'attraction';
-  if (t.leisure === 'park') return 'parc';
+  if (t.leisure === 'park' || t.leisure === 'garden') return 'parc';
+  if (t.leisure === 'playground') return 'jeux';
+  if (/^(sports_centre|stadium|swimming_pool)$/.test(t.leisure)) return 'sport';
+  if (t.man_made === 'obelisk') return 'monument';
   if (h) return 'patrimoine';
   return null;
 }
@@ -134,9 +153,15 @@ function overpassQuery(city) {
     `[historic~"^(monument|memorial|castle|palace|manor|fort|ruins|archaeological_site|city_gate|wayside_cross|wayside_shrine|church|chapel|monastery|boundary_stone|milestone|tower|building|heritage)$"]`,
     `[tourism~"^(museum|artwork|attraction|viewpoint|gallery)$"]`,
     `[man_made~"^(lighthouse|windmill|watermill|water_tower)$"]`,
-    `[leisure=park][name]`
+    `[leisure~"^(park|garden)$"][name]`,
+    `[historic]`,
+    `[amenity~"^(library|theatre|arts_centre|cinema|marketplace|clock|community_centre)$"]`,
+    `[railway=station][name]`,
+    `[leisure~"^(bandstand|playground)$"]`,
+    `[leisure~"^(sports_centre|stadium|swimming_pool)$"][name]`,
+    `[man_made=obelisk]`
   ];
-  return `[out:json][timeout:50];${scope}(${sel.map(s => `nwr${filt}${s};`).join('')});out center tags 1500;`;
+  return `[out:json][timeout:60];${scope}(${sel.map(s => `nwr${filt}${s};`).join('')});out center tags 1500;`;
 }
 async function fetchPlaces(city) {
   const body = 'data=' + encodeURIComponent(overpassQuery(city));
@@ -166,7 +191,7 @@ function toPlaces(json) {
     if (t.wikidata || t.wikipedia || t.heritage) r = Math.min(3, r + 1);
     let wiki = '';
     if (t.wikipedia) { const m = /^([a-z\-]+):(.+)$/.exec(t.wikipedia); if (m) wiki = `https://${m[1]}.wikipedia.org/wiki/${encodeURIComponent(m[2].replace(/ /g, '_'))}`; }
-    const big = el.type !== 'node' && /^(parc|chateau|ruines|attraction)$/.test(kind);
+    const big = el.type !== 'node' && /^(parc|chateau|ruines|attraction|sport|gare)$/.test(kind);
     out.push({ id: el.type[0] + el.id, n: name, k: kind, r: RAR_ORDER[r], lat: +lat.toFixed(6), lon: +lon.toFixed(6), rad: KINDS[kind][3] + (big ? 60 : 0), w: wiki, named: !!t.name });
   }
   // Doublons : même nom et même type à moins de 40 m
@@ -196,9 +221,10 @@ const cardinal = b => CARD[Math.round(b / 45) % 8];
 
 /* ---------- État et sauvegarde ---------- */
 const KEY = 'monuverse-v1';
+const DATA_VER = 2;
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayBefore = s => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-let S = { v: 1, current: null, cities: {}, pseudo: '', streak: { n: 0, last: '' }, xp: 0, dailyBonus: {} };
+let S = { v: 1, current: null, cities: {}, pseudo: '', streak: { n: 0, last: '' }, xp: 0, dailyBonus: {}, theme: 'auto' };
 function load() { try { const d = JSON.parse(localStorage.getItem(KEY) || 'null'); if (d && d.v === 1) S = Object.assign(S, d); } catch (e) {} }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("Ton téléphone n'a plus de place pour sauvegarder.", true); } }
 const city = () => S.cities[S.current];
@@ -508,7 +534,7 @@ function renderScan() {
   el.innerHTML = `
     <div class="gps ${acc <= 30 ? 'ok' : acc <= 100 ? 'warn' : 'bad'}"><i></i><div><b>${acc <= 100 ? 'Position trouvée' : 'Position imprécise'}</b> <span>· précision ${acc} m${acc > 100 ? ' : sors à découvert' : ''}</span></div></div>
     <div class="radar"><svg viewBox="0 0 300 300" aria-label="Radar des lieux autour de toi">
-      <defs><radialGradient id="radar-g"><stop offset="0" stop-color="rgba(79,224,207,.14)"/><stop offset="1" stop-color="rgba(16,25,45,.9)"/></radialGradient>
+      <defs><radialGradient id="radar-g"><stop offset="0" stop-color="rgba(79,224,207,.14)"/><stop offset="1" stop-color="${document.documentElement.dataset.theme === 'light' ? 'rgba(255,255,255,.95)' : 'rgba(16,25,45,.9)'}"/></radialGradient>
       <linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="rgba(79,224,207,0)"/><stop offset="1" stop-color="rgba(79,224,207,.35)"/></linearGradient></defs>
       <circle class="bg" cx="150" cy="150" r="140"/>
       <circle class="rg" cx="150" cy="150" r="43"/><circle class="rg" cx="150" cy="150" r="87"/><circle class="rg" cx="150" cy="150" r="130"/>
@@ -639,6 +665,15 @@ async function shareStory() {
   };
 }
 
+/* ---------- Thème clair / sombre ---------- */
+const darkQ = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() {
+  const t = S.theme === 'light' || S.theme === 'dark' ? S.theme : (darkQ.matches ? 'dark' : 'light');
+  document.documentElement.dataset.theme = t;
+  const m = document.querySelector('meta[name="theme-color"]'); if (m) m.content = t === 'light' ? '#F3F5FA' : '#070C1A';
+}
+darkQ.addEventListener && darkQ.addEventListener('change', () => { if (S.theme === 'auto') { applyTheme(); if (tab === 'globe') renderGlobe(); } });
+
 /* ---------- Écran : Moi ---------- */
 function renderMoi() {
   header();
@@ -651,6 +686,7 @@ function renderMoi() {
     <div class="places">${cities.map(c => `<button class="pl ${c.id === S.current ? 'got' : 'locked'}" data-c="${c.id}"><span class="ic">${shape('columns')}</span><div><b>${esc(c.name)}</b><span>${esc(c.dep || c.country)}</span></div><span class="rt"><span class="dist">${pct(c)} %</span><span class="gem">${nGot(c)}/${c.places.length}</span></span></button>`).join('')}</div>
     <div class="row2" style="margin-top:10px"><button class="btn gold" id="ct-here">La ville où je suis</button><button class="btn ghost" id="ct-add">Chercher une ville</button></div>
     <div class="sec"><h3>Réglages</h3></div>
+    <div class="field"><span>Apparence</span><div class="seg three" role="group" aria-label="Apparence">${[['auto', 'Auto'], ['light', 'Clair'], ['dark', 'Sombre']].map(([k, l]) => `<button data-th="${k}" aria-pressed="${(S.theme || 'auto') === k}">${l}</button>`).join('')}</div></div>
     <div style="display:grid;gap:8px">
       <button class="btn ghost" id="pf-refresh">Mettre à jour les lieux de ${esc(city().name)}</button>
       <button class="btn ghost" id="pf-wipe">Effacer toutes mes données</button>
@@ -658,6 +694,7 @@ function renderMoi() {
     <p class="fine" style="margin-top:14px">Tes collections et tes photos restent sur ce téléphone. Seuls ton pseudo, ta ville et tes points sont envoyés au classement. Lieux © contributeurs OpenStreetMap (ODbL).</p>`;
   $('#pf-form').onsubmit = e => { e.preventDefault(); if (setPseudo($('#pf-ps').value)) { toast('Pseudo enregistré.'); renderMoi(); } };
   $$('#s-moi [data-c]').forEach(b => b.onclick = () => { S.current = b.dataset.c; save(); filter = 'tous'; go('ville'); });
+  $$('#s-moi [data-th]').forEach(b => b.onclick = () => { S.theme = b.dataset.th; save(); applyTheme(); renderMoi(); });
   $('#ct-here').onclick = gpsCity;
   $('#ct-add').onclick = () => welcome(true);
   $('#pf-refresh').onclick = () => loadCity(city(), { force: true });
@@ -679,7 +716,7 @@ function fixWinding(f) {
   if (g.type === 'Polygon') g.coordinates = flip(g.coordinates); else if (g.type === 'MultiPolygon') g.coordinates = g.coordinates.map(flip);
   return f;
 }
-const GL = { proj: null, k: 1, timer: null, idle: 0, focus: null };
+const GL = { proj: null, k: 1, timer: null, idle: 0, focus: null, vx: 0, vy: 0 };
 const GMAX = 40;
 async function renderGlobe() {
   header();
@@ -689,7 +726,7 @@ async function renderGlobe() {
     <div class="gstats"><div><b>${ccs.size}</b><span>pays</span></div><div><b>${started.length}</b><span>ville${started.length > 1 ? 's' : ''}</span></div><div><b>${totalPlaces()}</b><span>lieu${totalPlaces() > 1 ? 'x' : ''}</span></div></div>
     <div class="globe-wrap"><svg id="globe" role="img" aria-label="Globe de tes villes et pays"></svg>
       <div class="zoom"><button id="gz-in" aria-label="Zoomer">+</button><button id="gz-out" aria-label="Dézoomer">−</button><button id="gz-home" aria-label="Revenir sur ma ville"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button></div>
-      <span class="ghint" id="ghint">Fais tourner la Terre avec ton doigt</span></div>
+      <span class="ghint" id="ghint">Fais glisser ton doigt pour tourner la Terre</span></div>
     <div id="gfocus"></div>
     <p class="fine">Chaque ville que tu commences allume son pays en or. Voyage, collectionne, et remplis ton globe.</p>
     <button class="btn ghost" id="g-add" style="margin-top:12px">Ajouter une ville</button>`;
@@ -709,9 +746,11 @@ function drawGlobe(land, ccs) {
   const path = d3.geoPath(proj);
   const svg = d3.select(el).attr('viewBox', `0 0 ${w} ${h}`);
   svg.selectAll('*').remove();
-  svg.append('defs').html(`<radialGradient id="g-ocean" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="#1B3A6E"/><stop offset=".6" stop-color="#0E2047"/><stop offset="1" stop-color="#081430"/></radialGradient>
+  const lightT = document.documentElement.dataset.theme === 'light';
+  const oc = lightT ? ['#E3F0FB', '#BFD8F0', '#9DBFE3'] : ['#1B3A6E', '#0E2047', '#081430'];
+  svg.append('defs').html(`<radialGradient id="g-ocean" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="${oc[0]}"/><stop offset=".6" stop-color="${oc[1]}"/><stop offset="1" stop-color="${oc[2]}"/></radialGradient>
     <radialGradient id="g-atmo"><stop offset=".86" stop-color="#4FE0CF" stop-opacity="0"/><stop offset=".9" stop-color="#4FE0CF" stop-opacity=".35"/><stop offset="1" stop-color="#4FE0CF" stop-opacity="0"/></radialGradient>
-    <radialGradient id="g-shade" cx="35%" cy="30%" r="80%"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".45"/></radialGradient>`);
+    <radialGradient id="g-shade" cx="35%" cy="30%" r="80%"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#0A1A3A" stop-opacity="${lightT ? '.18' : '.45'}"/></radialGradient>`);
   const atmo = svg.append('circle').attr('class', 'atmo').attr('cx', w / 2).attr('cy', h / 2);
   const sphere = svg.append('path').datum({ type: 'Sphere' }).attr('class', 'sphere');
   const grat = svg.append('path').datum(d3.geoGraticule10()).attr('class', 'grat');
@@ -746,17 +785,23 @@ function drawGlobe(land, ccs) {
   $('#gz-out').onclick = () => zoomGlobe(GL.k / 2);
   $('#gz-home').onclick = () => { const c = city(); if (c) flyGlobe(c, 8); };
   if (GL.timer) GL.timer.stop();
-  if (!calm()) GL.timer = d3.timer(() => {
+  GL.timer = d3.timer(() => {
     if (tab !== 'globe' || !document.contains(el)) { GL.timer.stop(); GL.timer = null; return; }
-    if (GL.drag || GL.flying || GL.k > 1.3 || Date.now() - GL.idle < 2500) return;
-    const r = proj.rotate(); proj.rotate([r[0] + .15, r[1], 0]); update();
+    if (GL.drag || GL.flying) return;
+    const r = proj.rotate();
+    if (Math.abs(GL.vx) > .02 || Math.abs(GL.vy) > .02) { proj.rotate([r[0] + GL.vx, Math.max(-85, Math.min(85, r[1] + GL.vy)), 0]); GL.vx *= .94; GL.vy *= .94; update(); return; }
+    if (GL.k > 1.3 || Date.now() - GL.idle < 2500) return;
+    proj.rotate([r[0] + (calm() ? .06 : .15), r[1], 0]); update();
   });
   if (GL.focus && S.cities[GL.focus]) focusCity(S.cities[GL.focus], true);
 }
 function bindGlobe(el) {
   const pts = new Map(); let pinch = null, moved = 0;
+  // Safari iOS : empêcher la page de défiler pendant qu'on tourne le globe
+  ['touchstart', 'touchmove'].forEach(t => el.addEventListener(t, e => { if (e.cancelable) e.preventDefault(); }, { passive: false }));
+  el.addEventListener('gesturestart', e => e.preventDefault());
   el.addEventListener('wheel', e => { e.preventDefault(); GL.idle = Date.now(); setGZoom(GL.k * Math.exp(-e.deltaY * .0025)); }, { passive: false });
-  el.addEventListener('pointerdown', e => { el.setPointerCapture && el.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); GL.drag = true; moved = 0; if (pts.size === 2) pinch = { d: spread(), k: GL.k }; });
+  el.addEventListener('pointerdown', e => { try { el.setPointerCapture(e.pointerId); } catch (x) {} pts.set(e.pointerId, [e.clientX, e.clientY]); GL.drag = true; GL.vx = GL.vy = 0; moved = 0; if (pts.size === 2) pinch = { d: spread(), k: GL.k }; });
   const spread = () => { const [a, b] = [...pts.values()]; return Math.hypot(a[0] - b[0], a[1] - b[1]) || 1; };
   el.addEventListener('pointermove', e => {
     if (!pts.has(e.pointerId)) return;
@@ -764,9 +809,10 @@ function bindGlobe(el) {
     if (pts.size === 2 && pinch) { setGZoom(pinch.k * spread() / pinch.d); return; }
     const dx = e.clientX - px, dy = e.clientY - py; moved += Math.abs(dx) + Math.abs(dy);
     const r = GL.proj.rotate(), f = .3 / GL.k;
+    GL.vx = dx * f; GL.vy = -dy * f;
     GL.proj.rotate([r[0] + dx * f, Math.max(-85, Math.min(85, r[1] - dy * f)), 0]); GL.update();
   });
-  const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (!pts.size) { GL.drag = false; GL.idle = Date.now(); } };
+  const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (!pts.size) { GL.drag = false; GL.idle = Date.now(); if (pinch !== null || moved < 4) GL.vx = GL.vy = 0; } };
   el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
 }
 function setGZoom(k) { GL.k = Math.max(1, Math.min(GMAX, k)); GL.update && GL.update(); }
@@ -808,7 +854,7 @@ function gpsCity() {
 }
 async function loadCity(c, { force = false } = {}) {
   const old = S.cities[c.id];
-  if (old && !force && old.places.length && Date.now() - (old.fetched || 0) < 14 * 864e5) { S.current = c.id; save(); filter = 'tous'; show('main'); go('ville'); return; }
+  if (old && !force && old.places.length && old.ver === DATA_VER && Date.now() - (old.fetched || 0) < 14 * 864e5) { S.current = c.id; save(); filter = 'tous'; show('main'); go('ville'); return; }
   show('loading'); $('#l-title').textContent = `Recherche des lieux de ${c.name}…`; $('#l-sub').textContent = 'Statues, fontaines, églises, fresques, monuments : on parcourt la carte.';
   let places;
   try { places = await fetchPlaces(c); }
@@ -820,7 +866,7 @@ async function loadCity(c, { force = false } = {}) {
   const scanned = old ? Object.fromEntries(Object.entries(old.scanned).filter(([id]) => places.some(p => p.id === id))) : {};
   // garde les lieux déjà débloqués même s'ils ont disparu de la carte
   if (old) old.places.filter(p => old.scanned[p.id] && !places.some(q => q.id === p.id)).forEach(p => { places.push(p); scanned[p.id] = old.scanned[p.id]; });
-  S.cities[c.id] = Object.assign({}, c, { places, scanned, fetched: Date.now() });
+  S.cities[c.id] = Object.assign({}, c, { places, scanned, fetched: Date.now(), ver: DATA_VER });
   S.current = c.id; save(); filter = 'tous';
   show('main'); go('ville');
   if (!old) welcomeGift();
@@ -855,5 +901,7 @@ $('#t-me').onclick = () => go('moi');
 document.addEventListener('visibilitychange', () => { if (document.hidden) stopGPS(); else if (tab === 'scan') startGPS(); });
 
 load();
-if (city()) { show('main'); go('ville'); } else show('welcome');
+applyTheme();
+if (city() && city().ver !== DATA_VER && navigator.onLine !== false) loadCity(city());
+else if (city()) { show('main'); go('ville'); } else show('welcome');
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
