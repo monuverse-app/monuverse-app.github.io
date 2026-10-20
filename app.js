@@ -126,6 +126,26 @@ function cityFromNominatim(r) {
     dep: a.county || a.state_district || a.state || '', region: a.state || '', country: a.country || '', cc: (a.country_code || '').toUpperCase()
   };
 }
+/* ---------- France et outre-mer : données préparées à l'avance (data/fr), sans limite de serveur ---------- */
+const nrm = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[-'’\s]+/g, ' ').trim();
+let frP = null;
+const loadFR = () => frP || (frP = fetch('data/fr/communes.json').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(j => { j.norm = j.communes.map(c => nrm(c[1])); return j; }).catch(e => { frP = null; throw e; }));
+const frCity = (j, row) => ({ id: 'fr' + row[0], insee: row[0], name: row[1], lat: row[2], lon: row[3], dep: j.deps[row[4]] || '', region: '', country: 'France', cc: 'FR', n: row[6] });
+async function searchFR(q, max = 8) {
+  const j = await loadFR(), v = nrm(q); if (v.length < 2) return [];
+  const out = [];
+  for (let i = 0; i < j.norm.length && out.length < max; i++) if (j.norm[i].startsWith(v)) out.push(i);
+  if (out.length < max && v.length >= 3) for (let i = 0; i < j.norm.length && out.length < max; i++) if (!out.includes(i) && j.norm[i].includes(v)) out.push(i);
+  return out.map(i => frCity(j, j.communes[i]));
+}
+const FR_BOX = [[41.2, 51.2, -5.6, 9.7], [15.8, 16.6, -61.9, -60.9], [14.3, 15, -61.3, -60.7], [2, 5.9, -54.7, -51.5], [-21.5, -20.8, 55.1, 55.9], [-13.1, -12.5, 44.9, 45.4]];
+const inFR = (lat, lon) => FR_BOX.some(([a, b, c, d]) => lat >= a && lat <= b && lon >= c && lon <= d);
+async function nearestFR(lat, lon) {
+  const j = await loadFR(); let best = null, bd = Infinity;
+  for (const r of j.communes) { const d = dist({ lat, lon }, { lat: r[2], lon: r[3] }); if (d < bd) { bd = d; best = r; } }
+  return best && bd < 15000 ? frCity(j, best) : null;
+}
 async function searchCities(q) {
   const u = `${NOMINATIM}/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&limit=6&featureType=settlement&accept-language=fr`;
   const r = await fetch(u, { headers: { Accept: 'application/json' } });
@@ -133,6 +153,7 @@ async function searchCities(q) {
   return (await r.json()).map(cityFromNominatim);
 }
 async function cityAt(lat, lon) {
+  if (inFR(lat, lon)) { try { const c = await nearestFR(lat, lon); if (c) return c; } catch (e) {} }
   const u = `${NOMINATIM}/reverse?lat=${lat}&lon=${lon}&format=jsonv2&zoom=10&addressdetails=1&accept-language=fr`;
   const r = await fetch(u, { headers: { Accept: 'application/json' } });
   if (!r.ok) throw new Error('reverse ' + r.status);
@@ -164,6 +185,13 @@ function overpassQuery(city) {
   return `[out:json][timeout:60];${scope}(${sel.map(s => `nwr${filt}${s};`).join('')});out center tags 1500;`;
 }
 async function fetchPlaces(city) {
+  if (city.insee) {
+    try {
+      const r = await fetch(`data/fr/${city.insee}.json`);
+      if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.places)) return j.places; }
+      if (r.status === 404 && (await loadFR().then(() => true, () => false))) return [];
+    } catch (e) {}
+  }
   const body = 'data=' + encodeURIComponent(overpassQuery(city));
   let last;
   for (const url of OVERPASS) {
@@ -724,7 +752,7 @@ async function renderGlobe() {
   const ccs = new Set(started.map(c => c.cc));
   $('#s-globe').innerHTML = `
     <div class="gstats"><div><b>${ccs.size}</b><span>pays</span></div><div><b>${started.length}</b><span>ville${started.length > 1 ? 's' : ''}</span></div><div><b>${totalPlaces()}</b><span>lieu${totalPlaces() > 1 ? 'x' : ''}</span></div></div>
-    <div class="globe-wrap"><svg id="globe" role="img" aria-label="Globe de tes villes et pays"></svg>
+    <div class="globe-wrap"><div id="globe" role="img" aria-label="Globe de tes villes et pays"><canvas aria-hidden="true"></canvas><svg class="gpins"></svg></div>
       <div class="zoom"><button id="gz-in" aria-label="Zoomer">+</button><button id="gz-out" aria-label="Dézoomer">−</button><button id="gz-home" aria-label="Revenir sur ma ville"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button></div>
       <span class="ghint" id="ghint">Fais glisser ton doigt pour tourner la Terre</span></div>
     <div id="gfocus"></div>
@@ -736,49 +764,103 @@ async function renderGlobe() {
   if (tab !== 'globe' || typeof d3 === 'undefined') return;
   drawGlobe(land, ccs);
 }
+const DEG = Math.PI / 180, HALF = Math.PI / 2;
+let partsCache = null;
+function globeParts(land) {
+  if (partsCache && partsCache.land === land) return partsCache.parts;
+  const parts = [];
+  for (const f of land) {
+    const g = f.geometry, polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+    for (const poly of polys) {
+      const pg = { type: 'Polygon', coordinates: poly }, c = d3.geoCentroid(pg);
+      let r = 0; for (const pt of poly[0]) r = Math.max(r, d3.geoDistance(c, pt));
+      const rings = poly.map(ring => { const a = new Float64Array(ring.length * 3); ring.forEach(([lo, la], i) => { a[i * 3] = lo * DEG; a[i * 3 + 1] = Math.sin(la * DEG); a[i * 3 + 2] = Math.cos(la * DEG); }); return a; });
+      parts.push({ g: pg, cc: f.properties.cc, lon: c[0] * DEG, sl: Math.sin(c[1] * DEG), cl: Math.cos(c[1] * DEG), r, rings });
+    }
+  }
+  partsCache = { land, parts };
+  return parts;
+}
+/* Le globe est peint sur un canvas (rapide, même sur iPhone) ; seules les épingles des villes sont en SVG par-dessus. */
 function drawGlobe(land, ccs) {
   const el = $('#globe'); if (!el) return;
-  const w = el.clientWidth || 380, h = 380, base = Math.min(w, h) / 2 - 16;
+  const cv = el.querySelector('canvas'), ov = el.querySelector('svg');
+  const w = el.clientWidth || 380, h = el.clientHeight || 380, base = Math.min(w, h) / 2 - 16;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   const c0 = city();
   const rot = GL.proj ? GL.proj.rotate() : [-(c0 ? c0.lon : 2), -(c0 ? c0.lat : 45) * .6, 0];
-  const proj = d3.geoOrthographic().translate([w / 2, h / 2]).rotate(rot).clipAngle(90).precision(.6);
+  const proj = d3.geoOrthographic().translate([w / 2, h / 2]).rotate(rot).clipAngle(90).precision(0);
   GL.proj = proj;
-  const path = d3.geoPath(proj);
-  const svg = d3.select(el).attr('viewBox', `0 0 ${w} ${h}`);
-  svg.selectAll('*').remove();
-  const lightT = document.documentElement.dataset.theme === 'light';
-  const oc = lightT ? ['#E3F0FB', '#BFD8F0', '#9DBFE3'] : ['#1B3A6E', '#0E2047', '#081430'];
-  svg.append('defs').html(`<radialGradient id="g-ocean" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="${oc[0]}"/><stop offset=".6" stop-color="${oc[1]}"/><stop offset="1" stop-color="${oc[2]}"/></radialGradient>
-    <radialGradient id="g-atmo"><stop offset=".86" stop-color="#4FE0CF" stop-opacity="0"/><stop offset=".9" stop-color="#4FE0CF" stop-opacity=".35"/><stop offset="1" stop-color="#4FE0CF" stop-opacity="0"/></radialGradient>
-    <radialGradient id="g-shade" cx="35%" cy="30%" r="80%"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#0A1A3A" stop-opacity="${lightT ? '.18' : '.45'}"/></radialGradient>`);
-  const atmo = svg.append('circle').attr('class', 'atmo').attr('cx', w / 2).attr('cy', h / 2);
-  const sphere = svg.append('path').datum({ type: 'Sphere' }).attr('class', 'sphere');
-  const grat = svg.append('path').datum(d3.geoGraticule10()).attr('class', 'grat');
-  const lands = svg.append('g').selectAll('path').data(land).join('path').attr('class', d => 'land' + (ccs.has(d.properties.cc) ? ' visited' : ''));
-  const shade = svg.append('path').datum({ type: 'Sphere' }).attr('class', 'shade');
+  const path = d3.geoPath(proj, ctx);
+  const css = getComputedStyle(document.documentElement), v = n => css.getPropertyValue(n).trim();
+  const light = document.documentElement.dataset.theme === 'light';
+  const COL = light
+    ? { o0: '#E3F0FB', o1: '#BFD8F0', o2: '#9DBFE3', land: '#F7F9FC', edge: '#A9BAD3', grat: 'rgba(20,50,100,.10)', shade: 'rgba(10,26,58,.18)', vis: v('--gold') || '#E8A526', visEdge: '#B57C0B', atmo: 'rgba(18,168,153,' }
+    : { o0: '#1B3A6E', o1: '#0E2047', o2: '#081430', land: '#2A3B5C', edge: '#3B4F75', grat: 'rgba(160,190,255,.07)', shade: 'rgba(0,0,0,.45)', vis: '#F5B841', visEdge: '#FFE2A0', atmo: 'rgba(79,224,207,' };
+  const grat = d3.geoGraticule10(), sphere = { type: 'Sphere' };
+  const parts = globeParts(land);
   const cities = Object.values(S.cities);
+  d3.select(ov).attr('viewBox', `0 0 ${w} ${h}`).selectAll('*').remove();
   const R = 11, C = 2 * Math.PI * R;
-  const pins = svg.append('g').selectAll('g').data(cities).join('g').attr('class', c => 'pin' + (c.id === S.current ? ' cur' : ''))
+  const pins = d3.select(ov).append('g').selectAll('g').data(cities).join('g').attr('class', c => 'pin' + (c.id === S.current ? ' cur' : ''))
     .attr('role', 'button').attr('tabindex', 0).attr('aria-label', c => `${c.name}, ${pct(c)} %`);
   pins.append('circle').attr('class', 'bg').attr('r', 15);
   pins.append('circle').attr('class', 'tr').attr('r', R);
   pins.append('circle').attr('class', 'pr').attr('r', R).attr('transform', 'rotate(-90)').attr('stroke-dasharray', c => `${C * pct(c) / 100} ${C}`).attr('visibility', c => pct(c) ? null : 'hidden');
   pins.append('text').attr('class', 'pc').text(c => pct(c));
   pins.append('text').attr('class', 'lb').attr('x', 19).attr('y', 4).text(c => c.name);
-  const me = svg.append('circle').attr('class', 'me').attr('r', 5);
-  const update = () => {
-    proj.scale(base * GL.k);
-    atmo.attr('r', base * GL.k * 1.12);
-    sphere.attr('d', path); grat.attr('d', path); lands.attr('d', path); shade.attr('d', path);
+  const me = d3.select(ov).append('circle').attr('class', 'me').attr('r', 5);
+  let queued = false;
+  const paint = () => {
+    queued = false;
+    const s = base * GL.k; proj.scale(s);
+    ctx.clearRect(0, 0, w, h);
+    const ga = ctx.createRadialGradient(w / 2, h / 2, s * .9, w / 2, h / 2, s * 1.14);
+    ga.addColorStop(0, COL.atmo + '0)'); ga.addColorStop(.25, COL.atmo + '.35)'); ga.addColorStop(1, COL.atmo + '0)');
+    ctx.fillStyle = ga; ctx.beginPath(); ctx.arc(w / 2, h / 2, s * 1.14, 0, 7); ctx.fill();
+    const go = ctx.createRadialGradient(w / 2 - s * .3, h / 2 - s * .35, s * .1, w / 2, h / 2, s);
+    go.addColorStop(0, COL.o0); go.addColorStop(.6, COL.o1); go.addColorStop(1, COL.o2);
+    ctx.fillStyle = go; ctx.beginPath(); path(sphere); ctx.fill();
+    ctx.strokeStyle = COL.grat; ctx.lineWidth = .6; ctx.beginPath(); path(grat); ctx.stroke();
+    const rt = proj.rotate(), lon0 = -rt[0] * DEG, s0 = Math.sin(-rt[1] * DEG), c0 = Math.cos(-rt[1] * DEG), cx = w / 2, cy = h / 2;
+    for (const vis of [false, true]) {
+      ctx.beginPath(); let any = false;
+      for (const p of parts) {
+        if (ccs.has(p.cc) !== vis) continue;
+        const d = Math.acos(Math.max(-1, Math.min(1, s0 * p.sl + c0 * p.cl * Math.cos(p.lon - lon0))));
+        if (d - p.r > HALF) continue;
+        any = true;
+        if (d + p.r > HALF - .02 && p.r > .6) { path(p.g); continue; }   // grands pays à cheval sur l'horizon : découpage exact
+        for (const a of p.rings) {
+          for (let i = 0; i < a.length; i += 3) {
+            const dl = a[i] - lon0, sl = a[i + 1], cl = a[i + 2], cdl = Math.cos(dl);
+            let x = cl * Math.sin(dl), y = c0 * sl - s0 * cl * cdl;
+            if (s0 * sl + c0 * cl * cdl < 0) { const m = Math.hypot(x, y) || 1; x /= m; y /= m; }   // face cachée : ramené sur le bord
+            const X = cx + s * x, Y = cy - s * y;
+            if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+          }
+          ctx.closePath();
+        }
+      }
+      if (!any) continue;
+      if (vis) { ctx.fillStyle = COL.vis; ctx.strokeStyle = COL.visEdge; ctx.globalAlpha = .92; ctx.fill(); ctx.globalAlpha = 1; ctx.lineWidth = .5; ctx.stroke(); }
+      else { ctx.fillStyle = COL.land; ctx.strokeStyle = COL.edge; ctx.lineWidth = .4; ctx.fill(); ctx.stroke(); }
+    }
+    const gs = ctx.createRadialGradient(w / 2 - s * .35, h / 2 - s * .4, s * .2, w / 2, h / 2, s);
+    gs.addColorStop(0, 'rgba(0,0,0,0)'); gs.addColorStop(.6, 'rgba(0,0,0,0)'); gs.addColorStop(1, COL.shade);
+    ctx.fillStyle = gs; ctx.beginPath(); path(sphere); ctx.fill();
     const ctr = [-proj.rotate()[0], -proj.rotate()[1]];
     pins.attr('display', c => d3.geoDistance(ctr, [c.lon, c.lat]) < 1.5 ? null : 'none')
-      .attr('transform', c => { const p = proj([c.lon, c.lat]); return p ? `translate(${p[0]},${p[1]})` : null; });
+      .attr('transform', c => { const p = proj([c.lon, c.lat]); return p ? `translate(${p[0].toFixed(1)},${p[1].toFixed(1)})` : null; });
     pins.select('.lb').attr('display', GL.k >= 2.5 || cities.length < 4 ? null : 'none');
     const pos = GPS.pos;
     if (pos && d3.geoDistance(ctr, [pos.lon, pos.lat]) < 1.5) { const p = proj([pos.lon, pos.lat]); me.attr('display', null).attr('cx', p[0]).attr('cy', p[1]); } else me.attr('display', 'none');
   };
-  GL.update = update;
-  update();
+  const update = () => { if (!queued) { queued = true; requestAnimationFrame(paint); } };
+  GL.update = update; GL.paint = paint;
+  paint();
   pins.on('click', (e, c) => { e.stopPropagation(); focusCity(c); }).on('keydown', (e, c) => { if (e.key === 'Enter') focusCity(c); });
   bindGlobe(el);
   $('#gz-in').onclick = () => zoomGlobe(GL.k * 2);
@@ -853,6 +935,8 @@ function gpsCity() {
   }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
 }
 async function loadCity(c, { force = false } = {}) {
+  const twin = Object.values(S.cities).find(x => x.id !== c.id && x.cc === c.cc && nrm(x.name) === nrm(c.name) && dist(x, c) < 8000);
+  if (twin && !S.cities[c.id]) { S.cities[c.id] = Object.assign({}, twin, c, { ver: 0 }); delete S.cities[twin.id]; if (S.current === twin.id) S.current = c.id; save(); }
   const old = S.cities[c.id];
   if (old && !force && old.places.length && old.ver === DATA_VER && Date.now() - (old.fetched || 0) < 14 * 864e5) { S.current = c.id; save(); filter = 'tous'; show('main'); go('ville'); return; }
   show('loading'); $('#l-title').textContent = `Recherche des lieux de ${c.name}…`; $('#l-sub').textContent = 'Statues, fontaines, églises, fresques, monuments : on parcourt la carte.';
@@ -884,17 +968,27 @@ function welcomeGift() {
 
 /* ---------- Démarrage ---------- */
 $('#w-gps').onclick = gpsCity;
-$('#w-form').onsubmit = async e => {
-  e.preventDefault();
-  const q = $('#w-q').value.trim(); if (q.length < 2) return;
-  const res = $('#w-res'); res.innerHTML = '<p class="msg">Recherche…</p>';
-  try {
-    const list = await searchCities(q);
-    res.innerHTML = list.length ? list.map((c, i) => `<button class="res" data-i="${i}"><b>${esc(c.name)}</b><span>${esc([c.dep, c.region !== c.dep ? c.region : '', c.country].filter(Boolean).join(' · '))}</span></button>`).join('')
-      : '<p class="msg">Aucune ville trouvée. Vérifie l\'orthographe ou ajoute le pays, par exemple « Sainte-Rose Guadeloupe ».</p>';
-    $$('#w-res [data-i]').forEach(b => b.onclick = () => loadCity(list[+b.dataset.i]));
-  } catch (err) { res.innerHTML = '<p class="msg err">La recherche ne répond pas. Vérifie ta connexion et réessaie.</p>'; }
-};
+const resRow = (c, i) => `<button class="res" data-i="${i}"><b>${esc(c.name)}</b><span>${esc([c.dep, c.region && c.region !== c.dep ? c.region : '', c.country].filter(Boolean).join(' · '))}${c.n ? ` · ${c.n} lieu${c.n > 1 ? 'x' : ''}` : ''}</span></button>`;
+function showResults(list, q, world) {
+  const res = $('#w-res');
+  res.innerHTML = (list.length ? list.map(resRow).join('') : `<p class="msg">${world ? "Aucune ville trouvée. Vérifie l'orthographe ou ajoute le pays, par exemple « Kingston Jamaïque »." : 'Aucune commune de France trouvée.'}</p>`)
+    + (world ? '' : `<button class="link" id="w-world">Ma ville n'est pas en France : chercher dans le monde</button>`);
+  $$('#w-res [data-i]').forEach(b => b.onclick = () => loadCity(list[+b.dataset.i]));
+  if ($('#w-world')) $('#w-world').onclick = () => searchWorld(q);
+}
+async function searchWorld(q) {
+  $('#w-res').innerHTML = '<p class="msg">Recherche dans le monde…</p>';
+  try { showResults(await searchCities(q), q, true); }
+  catch (err) { $('#w-res').innerHTML = '<p class="msg err">La recherche ne répond pas. Vérifie ta connexion et réessaie.</p>'; }
+}
+let qTimer = null;
+async function searchLocal(q, submit) {
+  if (q.length < 2) { if (!submit) $('#w-res').innerHTML = ''; return; }
+  try { const list = await searchFR(q); if ($('#w-q').value.trim() !== q) return; if (list.length || !submit) showResults(list, q, false); else searchWorld(q); }
+  catch (e) { if (submit) searchWorld(q); }
+}
+$('#w-q').addEventListener('input', () => { clearTimeout(qTimer); const q = $('#w-q').value.trim(); qTimer = setTimeout(() => searchLocal(q, false), 150); });
+$('#w-form').onsubmit = e => { e.preventDefault(); clearTimeout(qTimer); searchLocal($('#w-q').value.trim(), true); };
 $$('.tab').forEach(b => b.onclick = () => go(b.dataset.tab));
 $('#t-city').onclick = openCities;
 $('#t-me').onclick = () => go('moi');
@@ -902,6 +996,18 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) stopG
 
 load();
 applyTheme();
-if (city() && city().ver !== DATA_VER && navigator.onLine !== false) loadCity(city());
-else if (city()) { show('main'); go('ville'); } else show('welcome');
+(async () => {
+  const c = city();
+  if (!c) { show('welcome'); return; }
+  // Une ville de France enregistrée avant les données préparées : on la rattache à sa commune
+  if (c.cc === 'FR' && !c.insee) {
+    try {
+      const j = await loadFR(), v = nrm(c.name);
+      const row = j.communes.filter((r, i) => j.norm[i] === v).sort((a, b) => dist(c, { lat: a[2], lon: a[3] }) - dist(c, { lat: b[2], lon: b[3] }))[0];
+      if (row && dist(c, { lat: row[2], lon: row[3] }) < 8000) { await loadCity(frCity(j, row)); return; }
+    } catch (e) {}
+  }
+  if (c.ver !== DATA_VER && navigator.onLine !== false) loadCity(c);
+  else { show('main'); go('ville'); }
+})();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

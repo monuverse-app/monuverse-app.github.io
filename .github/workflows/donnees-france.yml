@@ -1,0 +1,57 @@
+name: Données France et outre-mer
+
+# Prépare les lieux de toutes les communes de France, Guadeloupe, Martinique,
+# Guyane, La Réunion et Mayotte depuis OpenStreetMap, puis les publie dans data/fr/.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 1 * *'   # le 1er de chaque mois, 3 h 17 UTC
+  push:
+    branches: [main]
+    paths:
+      - 'outils/construire_france.py'
+      - '.github/workflows/donnees-france.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: donnees-france
+  cancel-in-progress: true
+
+jobs:
+  construire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Outils
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q osmium-tool
+          pip install --quiet shapely==2.0.6
+
+      - name: Télécharger la carte (Geofabrik)
+        run: |
+          mkdir -p /tmp/osm && cd /tmp/osm
+          for z in europe/france europe/france/guadeloupe europe/france/martinique europe/france/guyane europe/france/reunion europe/france/mayotte; do
+            f=$(basename $z)-latest.osm.pbf
+            curl -fsSL --retry 3 -o "$f" "https://download.geofabrik.de/$z-latest.osm.pbf"
+          done
+          ls -lh
+
+      - name: Construire les fichiers
+        run: python3 outils/construire_france.py /tmp/osm data/fr
+
+      - name: Publier
+        run: |
+          git config user.name "Monuverse"
+          git config user.email "noreply@monuverse-app.github.io"
+          git add -A data/fr
+          if git diff --cached --quiet; then echo "Aucun changement"; exit 0; fi
+          git commit -q -m "Données France et outre-mer : mise à jour $(date -u +%Y-%m-%d)"
+          git pull -q --rebase origin main
+          git push -q origin HEAD:main
