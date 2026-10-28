@@ -1,3 +1,4 @@
+/* © 2026 Monuverse. Tous droits réservés. Reproduction interdite sans autorisation (voir LICENSE.md). */
 'use strict';
 /* Anti-clickjacking : Monuverse ne fonctionne jamais à l'intérieur d'une autre page */
 if (window.top !== window.self) {
@@ -816,7 +817,8 @@ function renderMoi() {
       <button class="btn ghost" id="pf-refresh">Mettre à jour les lieux de ${esc(city().name)}</button>
       <button class="btn ghost" id="pf-wipe">Effacer toutes mes données</button>
     </div>
-    <p class="fine" style="margin-top:14px">Tes collections et tes photos restent sur ce téléphone. Seuls ton pseudo, ta ville et tes points sont envoyés au classement. Lieux © contributeurs OpenStreetMap (ODbL).</p>`;
+    <p class="fine" style="margin-top:14px">Tes collections et tes photos restent sur ce téléphone. Seuls ton pseudo, ta ville et tes points sont envoyés au classement. Lieux © contributeurs OpenStreetMap (ODbL).</p>
+    <p class="fine copy">© 2026 Monuverse. Tous droits réservés. Le nom, le logo, le code et le design de Monuverse sont protégés ; toute copie est interdite sans autorisation.</p>`;
   $('#pf-form').onsubmit = e => { e.preventDefault(); if (setPseudo($('#pf-ps').value)) { toast('Pseudo enregistré.'); renderMoi(); } };
   $$('#s-moi [data-c]').forEach(b => b.onclick = () => { S.current = b.dataset.c; save(); filter = 'tous'; go('ville'); });
   $$('#s-moi [data-th]').forEach(b => b.onclick = () => { S.theme = b.dataset.th; save(); applyTheme(); renderMoi(); });

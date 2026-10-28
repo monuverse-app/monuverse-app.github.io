@@ -1,3 +1,4 @@
+/* © 2026 Monuverse. Tous droits réservés. Reproduction interdite sans autorisation (voir LICENSE.md). */
 /* Monuverse v1 — nuit étoilée : l'or pour ce qu'on possède, l'aqua pour l'action d'explorer. */
 :root {
   color-scheme: dark;
@@ -356,3 +357,5 @@ a.btn { text-decoration: none; }
 .nav-pick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .nav-pick .btn { min-height: 46px; padding: 10px 6px; font-size: 13.5px; }
 .nav-pick .btn:first-child { border-color: var(--sea); }
+
+.fine.copy { margin-top: 10px; opacity: .85; }
