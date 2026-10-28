@@ -2,7 +2,7 @@
 'use strict';
 /* Anti-clickjacking : Monuverse ne fonctionne jamais à l'intérieur d'une autre page */
 if (window.top !== window.self) {
-  document.documentElement.innerHTML = '<body style="margin:0;font:16px system-ui;background:#070C1A;color:#EEF2FA;display:grid;place-items:center;height:100vh;text-align:center;padding:20px"><p>Pour ta sécurité, Monuverse s\'ouvre uniquement sur son propre site.<br><a href="https://monuverse-app.github.io/" target="_top" rel="noopener" style="color:#4FE0CF">Ouvrir Monuverse</a></p></body>';
+  document.documentElement.innerHTML = '<body style="margin:0;font:16px system-ui;background:#070C1A;color:#EEF2FA;display:grid;place-items:center;height:100vh;text-align:center;padding:20px"><p>Pour ta sécurité, Monuverse s\'ouvre uniquement sur son propre site.<br><a href="https://monuverse.fr/" target="_top" rel="noopener" style="color:#4FE0CF">Ouvrir Monuverse</a></p></body>';
   throw new Error('Monuverse ne peut pas être affiché dans un cadre.');
 }
 /* Monuverse v1 — une seule boucle : ta ville, ses vrais lieux, un scan par GPS, une série quotidienne, un classement local. */
