@@ -1,4 +1,5 @@
 'use strict';
+if (window.top !== window.self) { try { window.top.location.replace(window.self.location.href); } catch (e) { document.documentElement.innerHTML = ''; throw new Error('Monuverse ne peut pas être affiché dans un cadre.'); } }
 /* Monuverse v1 — une seule boucle : ta ville, ses vrais lieux, un scan par GPS, une série quotidienne, un classement local. */
 
 const CFG = window.MONUVERSE_CONFIG || {};
@@ -113,11 +114,36 @@ function classify(t) {
   return null;
 }
 
+/* ---------- Contrôle des données extérieures ----------
+   Fichiers de données, réponses d'OpenStreetMap et sauvegarde du téléphone sont traités comme non fiables :
+   chaque champ est vérifié, et tout ce qui ne correspond pas au format attendu est écarté. */
+const OK_ID = /^[nwr]\d{1,12}$/, OK_CITY = /^([nwr]\d{1,12}|fr[0-9AB]{5}|x\d{1,12})$/, OK_WIKI = /^https:\/\/[a-z-]{2,12}\.wikipedia\.org\/wiki\/[^\s"'<>`]{1,300}$/;
+const num = (v, lo, hi) => typeof v === 'number' && isFinite(v) && v >= lo && v <= hi;
+const txt = (v, max) => typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').trim().slice(0, max) : '';
+function cleanPlace(p) {
+  if (!p || typeof p !== 'object' || !OK_ID.test(p.id) || !KINDS[p.k] || !RAR[p.r] || !num(p.lat, -90, 90) || !num(p.lon, -180, 180)) return null;
+  const n = txt(p.n, 120); if (!n) return null;
+  return { id: p.id, n, k: p.k, r: p.r, lat: p.lat, lon: p.lon, rad: num(p.rad, 10, 400) ? p.rad : KINDS[p.k][3], w: OK_WIKI.test(p.w || '') ? p.w : '', named: !!p.named };
+}
+const cleanPlaces = list => (Array.isArray(list) ? list : []).slice(0, 2000).map(cleanPlace).filter(Boolean);
+function cleanCity(c) {
+  if (!c || typeof c !== 'object' || !OK_CITY.test(c.id) || !num(c.lat, -90, 90) || !num(c.lon, -180, 180)) return null;
+  const out = { id: c.id, name: txt(c.name, 80) || 'Ma ville', lat: c.lat, lon: c.lon, dep: txt(c.dep, 80), region: txt(c.region, 80), country: txt(c.country, 60),
+    cc: /^[A-Z]{2}$/.test(c.cc) ? c.cc : '', osmType: /^(node|way|relation)$/.test(c.osmType) ? c.osmType : undefined, osmId: num(c.osmId, 1, 1e13) ? c.osmId : undefined,
+    insee: /^[0-9AB]{5}$/.test(c.insee || '') ? c.insee : undefined, n: num(c.n, 0, 1e6) ? c.n : undefined };
+  if (Array.isArray(c.places)) out.places = cleanPlaces(c.places);
+  if (c.scanned && typeof c.scanned === 'object') out.scanned = Object.fromEntries(Object.entries(c.scanned).filter(([k, v]) => OK_ID.test(k) && v && num(v.t, 0, 1e14)).map(([k, v]) => [k, { t: v.t, gift: v.gift === true || undefined, photo: v.photo === true || undefined }]));
+  if (num(c.fetched, 0, 1e14)) out.fetched = c.fetched;
+  if (num(c.ver, 0, 99)) out.ver = c.ver;
+  return out;
+}
+
 /* ---------- Données OpenStreetMap ---------- */
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
 
-function cityFromNominatim(r) {
+function cityFromNominatim(r) { return cleanCity(cityFromNominatimRaw(r)); }
+function cityFromNominatimRaw(r) {
   const a = r.address || {};
   const name = r.name || a.city || a.town || a.village || a.municipality || a.hamlet || (r.display_name || '').split(',')[0];
   return {
@@ -131,7 +157,7 @@ const nrm = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, ''
 let frP = null;
 const loadFR = () => frP || (frP = fetch('data/fr/communes.json').then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
   .then(j => { j.norm = j.communes.map(c => nrm(c[1])); return j; }).catch(e => { frP = null; throw e; }));
-const frCity = (j, row) => ({ id: 'fr' + row[0], insee: row[0], name: row[1], lat: row[2], lon: row[3], dep: j.deps[row[4]] || '', region: '', country: 'France', cc: 'FR', n: row[6] });
+const frCity = (j, row) => cleanCity({ id: 'fr' + row[0], insee: row[0], name: row[1], lat: row[2], lon: row[3], dep: j.deps[row[4]] || '', region: '', country: 'France', cc: 'FR', n: row[6] });
 async function searchFR(q, max = 8) {
   const j = await loadFR(), v = nrm(q); if (v.length < 2) return [];
   const out = [];
@@ -150,7 +176,7 @@ async function searchCities(q) {
   const u = `${NOMINATIM}/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&limit=6&featureType=settlement&accept-language=fr`;
   const r = await fetch(u, { headers: { Accept: 'application/json' } });
   if (!r.ok) throw new Error('search ' + r.status);
-  return (await r.json()).map(cityFromNominatim);
+  return (await r.json()).map(cityFromNominatim).filter(Boolean);
 }
 async function cityAt(lat, lon) {
   if (inFR(lat, lon)) { try { const c = await nearestFR(lat, lon); if (c) return c; } catch (e) {} }
@@ -159,7 +185,8 @@ async function cityAt(lat, lon) {
   if (!r.ok) throw new Error('reverse ' + r.status);
   const j = await r.json();
   if (!j || j.error) throw new Error('no city');
-  return cityFromNominatim(j);
+  const c = cityFromNominatim(j); if (!c) throw new Error('bad city');
+  return c;
 }
 function overpassQuery(city) {
   let scope, filt;
@@ -203,7 +230,7 @@ async function fetchPlaces(city) {
   if (pf) {
     try {
       const r = await fetch(pf.path);
-      if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.places)) { if (pf.region && !city.dep) city.dep = pf.region; return j.places; } }
+      if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.places)) { if (pf.region && !city.dep) city.dep = txt(pf.region, 80); return cleanPlaces(j.places); } }
       if (r.status === 404 && (pf.empty || (pf.check && await pf.check().then(() => true, () => false)))) return [];
     } catch (e) {}
   }
@@ -213,7 +240,7 @@ async function fetchPlaces(city) {
     try {
       const r = await fetch(url, { method: 'POST', body, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
       if (!r.ok) throw new Error('overpass ' + r.status);
-      return toPlaces(await r.json());
+      return cleanPlaces(toPlaces(await r.json()));
     } catch (e) { last = e; }
   }
   throw last;
@@ -268,7 +295,22 @@ const DATA_VER = 2;
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayBefore = s => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 let S = { v: 1, current: null, cities: {}, pseudo: '', streak: { n: 0, last: '' }, xp: 0, dailyBonus: {}, theme: 'auto' };
-function load() { try { const d = JSON.parse(localStorage.getItem(KEY) || 'null'); if (d && d.v === 1) S = Object.assign(S, d); } catch (e) {} }
+function load() {
+  try {
+    const d = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (!d || d.v !== 1) return;
+    const cities = {};
+    for (const c of Object.values(d.cities || {})) { const x = cleanCity(c); if (x && x.places) { x.scanned = x.scanned || {}; cities[x.id] = x; } }
+    S.cities = cities;
+    S.current = cities[d.current] ? d.current : (Object.keys(cities)[0] || null);
+    S.pseudo = txt(d.pseudo, 20);
+    S.xp = num(d.xp, 0, 1e7) ? Math.floor(d.xp) : 0;
+    S.streak = d.streak && num(d.streak.n, 0, 1e5) && /^\d{4}-\d{2}-\d{2}$/.test(d.streak.last || '') ? { n: d.streak.n, last: d.streak.last } : { n: 0, last: '' };
+    S.dailyBonus = d.dailyBonus && typeof d.dailyBonus === 'object' ? Object.fromEntries(Object.keys(d.dailyBonus).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).slice(0, 3).map(k => [k, true])) : {};
+    S.theme = ['auto', 'light', 'dark'].includes(d.theme) ? d.theme : 'auto';
+    S.nav = ['plans', 'google', 'waze'].includes(d.nav) ? d.nav : undefined;
+  } catch (e) {}
+}
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("Ton téléphone n'a plus de place pour sauvegarder.", true); } }
 const city = () => S.cities[S.current];
 const got = (c, p) => !!c.scanned[p.id];
