@@ -10,6 +10,8 @@ from collections import defaultdict
 from shapely.geometry import shape, Point
 from shapely.strtree import STRtree
 from shapely.prepared import prep
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from nettoyage import tidy
 
 SRC, OUT = sys.argv[1], sys.argv[2]
 TMP = os.path.join(SRC, 'work'); os.makedirs(TMP, exist_ok=True)
@@ -176,12 +178,7 @@ for fn in os.listdir(OUT):
     if fn.endswith('.json'): os.remove(os.path.join(OUT, fn))
 index = []
 for i, c in enumerate(communes):
-    lst = sorted(per.get(i, []), key=lambda p: (-RAR.index(p['r']), not p['named']))
-    kept = []
-    for p in lst:
-        if any(q['k'] == p['k'] and q['n'] == p['n'] and dist((p['lat'], p['lon']), (q['lat'], q['lon'])) < 40 for q in kept): continue
-        kept.append(p)
-        if len(kept) >= 600: break
+    kept = tidy(per.get(i, []), c['name'])[:600]   # orthographe, une seule mairie, doublons, lieux sans nom (outils/nettoyage.py)
     if kept:
         with open(os.path.join(OUT, c['insee'] + '.json'), 'w', encoding='utf8') as f:
             json.dump({'v': 2, 'places': kept}, f, ensure_ascii=False, separators=(',', ':'))

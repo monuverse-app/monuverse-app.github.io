@@ -131,12 +131,85 @@ function cleanPlace(p) {
   return { id: p.id, n, k: p.k, r: p.r, lat: p.lat, lon: p.lon, rad: num(p.rad, 10, 400) ? p.rad : KINDS[p.k][3], w: OK_WIKI.test(p.w || '') ? p.w : '', named: !!p.named };
 }
 const cleanPlaces = list => (Array.isArray(list) ? list : []).slice(0, 2000).map(cleanPlace).filter(Boolean);
+
+/* ---------- Toilettage des noms et des doublons (même règles que outils/nettoyage.py) ---------- */
+const SMALL = new Set(['de', 'du', 'des', 'la', 'le', 'les', 'et', 'en', 'au', 'aux', 'sur', 'sous', 'à', 'a', 'von', 'van', 'der', 'den', 'di', 'da', 'del', 'della', 'y', 'e', 'o', 'of', 'the', 'and']);
+const ROMAN = /^[IVXLC]+$/;
+function titleCase(t) {
+  let first = true;
+  return t.toLowerCase().replace(/[\p{L}\p{N}]+/gu, (w, i) => {
+    const prev = t[i - 1] || ' ';
+    let out;
+    if (ROMAN.test(w.toUpperCase()) && w.length <= 4 && !/^(di|mi|li|ci|vi|il|lc)$/i.test(w)) out = w.toUpperCase();
+    else if (!first && SMALL.has(w) && prev !== '-') out = w;
+    else if (!first && (w === 'd' || w === 'l') && t[i + 1] && /['’]/.test(t[i + 1])) out = w;
+    else out = w.charAt(0).toUpperCase() + w.slice(1);
+    first = false;
+    return out;
+  });
+}
+function fixText(n) {
+  n = n.replace(/\s+/g, ' ').trim();
+  const q = /^["“„«‘'‹]\s*(.+?)\s*["”“»’'›]$/u.exec(n); if (q) n = q[1];
+  n = n.replace(/\s*\|\s*/g, ' · ').replace(/\b(de|des|du|la|le|les|di|da|del|von|van)\s+\1\b/giu, '$1');
+  const letters = n.match(/\p{L}/gu) || [];
+  const latin = letters.filter(c => /[A-Za-zÀ-ɏ]/.test(c));
+  if (latin.length > 4 && latin.length >= letters.length * .8 && latin.every(c => c === c.toUpperCase() && c !== c.toLowerCase()) && (/\s/.test(n) || latin.length > 8)) n = titleCase(n);
+  else if (/^[a-zà-ÿ]/.test(n)) n = n.charAt(0).toUpperCase() + n.slice(1);
+  return n.replace(ACCENTS_RE, w => ACCENTS[w.toLowerCase()] ? (w[0] === w[0].toUpperCase() ? ACCENTS[w.toLowerCase()][0].toUpperCase() + ACCENTS[w.toLowerCase()].slice(1) : ACCENTS[w.toLowerCase()]) : w)
+    .replace(/\bMonument aux Morts\b/g, 'Monument aux morts');
+}
+/* Accents perdus dans les noms écrits en majuscules (mots propres au français) */
+const ACCENTS = { eglise: 'église', ecole: 'école', etang: 'étang', hotel: 'hôtel', chateau: 'château', theatre: 'théâtre', cimetiere: 'cimetière', musee: 'musée', riviere: 'rivière', fontaine: 'fontaine', cathedrale: 'cathédrale', chapelle: 'chapelle', calvaire: 'calvaire', etablissement: 'établissement', societe: 'société', notre: 'notre', place: 'place', marche: 'marché', mediatheque: 'médiathèque', bibliotheque: 'bibliothèque', college: 'collège', lycee: 'lycée', stade: 'stade', creche: 'crèche', prefecture: 'préfecture', sous: 'sous', gymnase: 'gymnase' };
+const ACCENTS_RE = /\b(Eglise|Ecole|Etang|Chateau|Cimetiere|Musee|Riviere|Cathedrale|Etablissement|Mediatheque|Bibliotheque|Prefecture|Hotel(?= de [Vv]ille)|Theatre(?= (?:de|du|des|municipal))|Marche(?= (?:couvert|aux|de|du|des))|College(?= (?:de|du|des))|Lycee|Creche)\b/g;
+/* « Mairie de Grand-Rivière » dans la commune « Grand'Rivière » : on reprend l'orthographe officielle de la commune */
+function cityVariant(n, city) {
+  if (!city) return n;
+  const words = city.split(/[-'’\s]+/).filter(Boolean); if (words.length < 2) return n;
+  const re = new RegExp('(^|[^\\p{L}])(' + words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join("[-'’\\s]+") + ')(?![\\p{L}])', 'iu');
+  return n.replace(re, (m, a) => a + city);
+}
+const TOWNHALL = /mairie|h[oô]tel de ville|town ?hall|city hall|rathaus|gemeinde|stadtamt|marktgemeinde|ayuntamiento|municipio|comune|municipal|c[aâ]mara|prefeitura|belediye|gemeentehuis|stadhuis|δημαρχ|市役所|町役場|村役場|政府|ศาลา/i;
+const DELEGUEE = /d[ée]l[ée]gu[ée]e|annexe|ortsverwaltung|ortsamt|bezirksamt|junta vecinal/i;
+const GENERIC_HALL = new Set(['mairie', 'hotel de ville', 'rathaus', 'gemeindeamt', 'town hall', 'city hall', 'ayuntamiento', 'municipio', 'gemeentehuis', 'stadhuis', 'comune', 'municipalite']);
+const FORMER = /\b(ancien(ne)?|ehem(alig\w*)?\.?|former|old|antigu[oa]|vecchi[oa]|alte[sr]?|eski)\b/i;
+function tidyPlaces(list, city, scanned = {}) {
+  const ps = list.map(p => Object.assign({}, p, { n: cityVariant(fixText(p.n), city) }));
+  // une seule mairie par commune : la plus probable ; une « ancienne mairie » devient du patrimoine
+  const halls = ps.filter(p => p.k === 'mairie');
+  if (halls.length > 1) {
+    const head = city ? nrm(city.split(/[-\s]/)[0]) : '';
+    const score = p => { const v = nrm(p.n); return (scanned[p.id] ? 100 : 0) + (TOWNHALL.test(p.n) ? 4 : 0) + (city && v.includes(nrm(city)) ? 3 : 0) + (head.length > 2 && v.includes(head) ? 2 : 0)
+      + (p.named ? 1 : 0) - (FORMER.test(p.n) ? 10 : 0) - (DELEGUEE.test(p.n) ? 4 : 0); };
+    const best = halls.slice().sort((a, b) => score(b) - score(a))[0];
+    for (const h of halls) {
+      if (h === best) continue;
+      const v = nrm(h.n), same = !h.named || v === nrm(best.n) || (city && v.includes(nrm(city))) || GENERIC_HALL.has(v);
+      if (same && !FORMER.test(h.n) && !DELEGUEE.test(h.n) && !scanned[h.id]) h.drop = true;   // doublon de la mairie
+      else h.k = 'patrimoine';                                                                     // autre bâtiment réel
+    }
+  }
+  // doublons : même nom (nommé) à moins de 400 m pour le même type ou 100 m pour tout type ; lieux sans nom : à moins de 30 m
+  const kept = [];
+  const order = ps.filter(p => !p.drop).sort((a, b) => (!!scanned[b.id] - !!scanned[a.id]) || RAR_ORDER.indexOf(b.r) - RAR_ORDER.indexOf(a.r) || (b.named - a.named) || (!!b.w - !!a.w));
+  for (const p of order) {
+    const v = nrm(p.n);
+    const twin = kept.find(q => nrm(q.n) === v && (p.named && q.named ? (q.k === p.k ? dist(p, q) < 400 : dist(p, q) < 100) : dist(p, q) < 30));
+    if (twin && !scanned[p.id]) { if (!twin.w && p.w) twin.w = p.w; continue; }
+    kept.push(p);
+  }
+  // même nom affiché pour des lieux différents : on les numérote (ordre stable par identifiant)
+  const groups = {};
+  kept.forEach(p => { (groups[nrm(p.n)] = groups[nrm(p.n)] || []).push(p); });
+  Object.values(groups).forEach(g => { if (g.length > 1) g.sort((a, b) => a.id.localeCompare(b.id)).forEach((p, i) => { if (i) p.n = `${p.n} n°${i + 1}`; }); });
+  return kept;
+}
 function cleanCity(c) {
   if (!c || typeof c !== 'object' || !OK_CITY.test(c.id) || !num(c.lat, -90, 90) || !num(c.lon, -180, 180)) return null;
   const out = { id: c.id, name: txt(c.name, 80) || 'Ma ville', lat: c.lat, lon: c.lon, dep: txt(c.dep, 80), region: txt(c.region, 80), country: txt(c.country, 60),
     cc: /^[A-Z]{2}$/.test(c.cc) ? c.cc : '', osmType: /^(node|way|relation)$/.test(c.osmType) ? c.osmType : undefined, osmId: num(c.osmId, 1, 1e13) ? c.osmId : undefined,
     insee: /^[0-9AB]{5}$/.test(c.insee || '') ? c.insee : undefined, n: num(c.n, 0, 1e6) ? c.n : undefined };
-  if (Array.isArray(c.places)) out.places = cleanPlaces(c.places);
+  if (Array.isArray(c.places)) out.places = tidyPlaces(cleanPlaces(c.places), out.name, out.scanned || (c.scanned && typeof c.scanned === 'object' ? c.scanned : {}));
   if (c.scanned && typeof c.scanned === 'object') out.scanned = Object.fromEntries(Object.entries(c.scanned).filter(([k, v]) => OK_ID.test(k) && v && num(v.t, 0, 1e14)).map(([k, v]) => [k, { t: v.t, gift: v.gift === true || undefined, photo: v.photo === true || undefined }]));
   if (num(c.fetched, 0, 1e14)) out.fetched = c.fetched;
   if (num(c.ver, 0, 99)) out.ver = c.ver;
@@ -235,7 +308,7 @@ async function fetchPlaces(city) {
   if (pf) {
     try {
       const r = await fetch(pf.path);
-      if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.places)) { if (pf.region && !city.dep) city.dep = txt(pf.region, 80); return cleanPlaces(j.places); } }
+      if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.places)) { if (pf.region && !city.dep) city.dep = txt(pf.region, 80); return tidyPlaces(cleanPlaces(j.places), city.name); } }
       if (r.status === 404 && (pf.empty || (pf.check && await pf.check().then(() => true, () => false)))) return [];
     } catch (e) {}
   }
@@ -245,7 +318,7 @@ async function fetchPlaces(city) {
     try {
       const r = await fetch(url, { method: 'POST', body, headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
       if (!r.ok) throw new Error('overpass ' + r.status);
-      return cleanPlaces(toPlaces(await r.json()));
+      return tidyPlaces(cleanPlaces(toPlaces(await r.json())), city.name);
     } catch (e) { last = e; }
   }
   throw last;
@@ -1049,6 +1122,7 @@ async function loadCity(c, { force = false } = {}) {
   const scanned = old ? Object.fromEntries(Object.entries(old.scanned).filter(([id]) => places.some(p => p.id === id))) : {};
   // garde les lieux déjà débloqués même s'ils ont disparu de la carte
   if (old) old.places.filter(p => old.scanned[p.id] && !places.some(q => q.id === p.id)).forEach(p => { places.push(p); scanned[p.id] = old.scanned[p.id]; });
+  places = tidyPlaces(places, c.name, scanned);
   S.cities[c.id] = Object.assign({}, c, { places, scanned, fetched: Date.now(), ver: DATA_VER });
   S.current = c.id; save(); filter = 'tous';
   show('main'); go('ville');
