@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
 
@@ -32,7 +32,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q osmium-tool
-          pip install --quiet shapely==2.0.6
+          pip install --quiet --only-binary=:all: shapely==2.0.6
 
       - name: Télécharger la carte (Geofabrik)
         run: |
@@ -40,6 +40,8 @@ jobs:
           for z in europe/france europe/france/guadeloupe europe/france/martinique europe/france/guyane europe/france/reunion europe/france/mayotte; do
             f=$(basename $z)-latest.osm.pbf
             curl -fsSL --retry 3 -o "$f" "https://download.geofabrik.de/$z-latest.osm.pbf"
+            curl -fsSL --retry 3 -o "$f.md5" "https://download.geofabrik.de/$z-latest.osm.pbf.md5"
+            echo "$(cut -d' ' -f1 "$f.md5")  $f" | md5sum -c -   # carte intacte, sinon on s'arrête
           done
           ls -lh
 

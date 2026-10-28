@@ -1,5 +1,9 @@
 'use strict';
-if (window.top !== window.self) { try { window.top.location.replace(window.self.location.href); } catch (e) { document.documentElement.innerHTML = ''; throw new Error('Monuverse ne peut pas être affiché dans un cadre.'); } }
+/* Anti-clickjacking : Monuverse ne fonctionne jamais à l'intérieur d'une autre page */
+if (window.top !== window.self) {
+  document.documentElement.innerHTML = '<body style="margin:0;font:16px system-ui;background:#070C1A;color:#EEF2FA;display:grid;place-items:center;height:100vh;text-align:center;padding:20px"><p>Pour ta sécurité, Monuverse s\'ouvre uniquement sur son propre site.<br><a href="https://monuverse-app.github.io/" target="_top" rel="noopener" style="color:#4FE0CF">Ouvrir Monuverse</a></p></body>';
+  throw new Error('Monuverse ne peut pas être affiché dans un cadre.');
+}
 /* Monuverse v1 — une seule boucle : ta ville, ses vrais lieux, un scan par GPS, une série quotidienne, un classement local. */
 
 const CFG = window.MONUVERSE_CONFIG || {};
@@ -403,14 +407,22 @@ const LB = (() => {
     keep(await r.json()); return ses;
   }
   let timer = null;
+  /* Le serveur limite la progression (anti-triche) : le score est envoyé par paliers jusqu'à rattraper le vrai score. */
+  let retry = null;
   async function push() {
     if (!on || !S.pseudo) return;
     const c = city(); if (!c) return;
+    clearTimeout(retry);
     try {
-      const s = await session();
-      const row = { id: s.uid, pseudo: S.pseudo.slice(0, 20), ville: c.name, ville_id: c.id, departement: `${c.dep}|${c.cc}`, pays: c.cc, points: S.xp, lieux: totalPlaces(), updated_at: new Date().toISOString() };
+      const s = await session(), auth = hdr({ Authorization: 'Bearer ' + s.access });
+      const cur = await fetch(`${base}/rest/v1/joueurs?select=points,lieux&id=eq.${s.uid}`, { headers: auth }).then(r => r.ok ? r.json() : []).catch(() => []);
+      const was = cur[0] || null, wantL = totalPlaces(), wantP = Math.floor(S.xp);
+      const lieux = Math.min(wantL, was ? was.lieux + 5 : 10);
+      const points = Math.min(wantP, was ? was.points + 1000 : 1000, lieux * 300 + 2000);
+      const row = { id: s.uid, pseudo: S.pseudo.slice(0, 20), ville: c.name.slice(0, 80), ville_id: c.id, departement: `${c.dep}|${c.cc}`.slice(0, 140), pays: c.cc, points: Math.max(points, was ? was.points : 0), lieux: Math.max(lieux, was ? was.lieux : 0) };
       const r = await fetch(`${base}/rest/v1/joueurs?on_conflict=id`, { method: 'POST', headers: hdr({ Authorization: 'Bearer ' + s.access, Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(row) });
-      if (!r.ok) throw new Error('upsert ' + r.status);
+      if (!r.ok) { retry = setTimeout(push, 10 * 60000); throw new Error('upsert ' + r.status); }
+      if (row.points < wantP || row.lieux < wantL) retry = setTimeout(push, 20000);
     } catch (e) { console.warn('classement', e); }
   }
   return {
@@ -701,6 +713,7 @@ async function renderRank() {
 function setPseudo(v) {
   v = String(v || '').trim().replace(/\s+/g, ' ').slice(0, 20);
   if (v.length < 2) { toast('Ton pseudo doit faire au moins 2 caractères.', true); return false; }
+  if (!/^[\p{L}\p{N} _.'-]{2,20}$/u.test(v)) { toast('Ton pseudo peut contenir des lettres, des chiffres, des espaces et . _ \' - uniquement.', true); return false; }
   S.pseudo = v; save(); LB.sync(); header(); return true;
 }
 

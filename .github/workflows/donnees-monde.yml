@@ -41,7 +41,7 @@ jobs:
           - { cc: US, nom: États-Unis,  geo: north-america/us,      niveau: 8 }
     name: ${{ matrix.nom }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 1
 
@@ -59,13 +59,15 @@ jobs:
         if: steps.budget.outputs.skip != '1'
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q osmium-tool
-          pip install --quiet shapely==2.0.6
+          pip install --quiet --only-binary=:all: shapely==2.0.6
 
       - name: Télécharger la carte
         if: steps.budget.outputs.skip != '1'
         run: |
           sudo mkdir -p /mnt/osm && sudo chown "$USER" /mnt/osm
           curl -fsSL --retry 3 -o /mnt/osm/pays.osm.pbf "https://download.geofabrik.de/${{ matrix.geo }}-latest.osm.pbf"
+          curl -fsSL --retry 3 -o /mnt/osm/pays.md5 "https://download.geofabrik.de/${{ matrix.geo }}-latest.osm.pbf.md5"
+          echo "$(cut -d' ' -f1 /mnt/osm/pays.md5)  /mnt/osm/pays.osm.pbf" | md5sum -c -   # carte intacte, sinon on s'arrête
           ls -lh /mnt/osm
 
       - name: Construire
