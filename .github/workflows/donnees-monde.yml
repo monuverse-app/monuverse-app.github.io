@@ -36,7 +36,7 @@ jobs:
           - { cc: GR, nom: Grèce,       geo: europe/greece,         niveau: 7 }
           - { cc: AT, nom: Autriche,    geo: europe/austria,        niveau: 8 }
           - { cc: HR, nom: Croatie,     geo: europe/croatia,        niveau: 7 }
-          - { cc: DE, nom: Allemagne,   geo: europe/germany,        niveau: 8 }
+          - { cc: DE, nom: Allemagne,   geo: europe/germany,        niveau: 8, parts: 'baden-wuerttemberg bayern berlin brandenburg bremen hamburg hessen mecklenburg-vorpommern niedersachsen nordrhein-westfalen rheinland-pfalz saarland sachsen sachsen-anhalt schleswig-holstein thueringen' }
           - { cc: NL, nom: Pays-Bas,    geo: europe/netherlands,    niveau: 8 }
           - { cc: PT, nom: Portugal,    geo: europe/portugal,       niveau: 7 }
           - { cc: MX, nom: Mexique,     geo: north-america/mexico,  niveau: 6 }
@@ -72,19 +72,34 @@ jobs:
         if: steps.budget.outputs.skip != '1'
         run: |
           sudo mkdir -p /mnt/osm && sudo chown "$USER" /mnt/osm
-          # Geofabrik d'abord, puis son miroir openstreetmap.fr ; la carte doit correspondre à son empreinte MD5
-          ok=0
-          for base in "https://download.geofabrik.de" "https://download.openstreetmap.fr/extracts"; do
-            for i in 1 2 3; do
-              if curl -fsSL --retry 5 --retry-all-errors --retry-delay 30 -o /mnt/osm/pays.md5 "$base/${{ matrix.geo }}-latest.osm.pbf.md5" \
-                 && curl -fSL --retry 5 --retry-all-errors --retry-delay 30 -o /mnt/osm/pays.osm.pbf "$base/${{ matrix.geo }}-latest.osm.pbf" \
-                 && echo "$(cut -d' ' -f1 /mnt/osm/pays.md5)  /mnt/osm/pays.osm.pbf" | md5sum -c -; then ok=1; break 2; fi
-              code=$(curl -sIL -o /dev/null -w '%{http_code} %{size_download}' "$base/${{ matrix.geo }}-latest.osm.pbf" || true)
-              echo "::warning title=Téléchargement ${{ matrix.cc }}::$base essai $i : réponse $code ; fichier $(stat -c %s /mnt/osm/pays.osm.pbf 2>/dev/null || echo 0) octets ; place libre $(df -h /mnt | tail -1 | awk '{print $4}')"
-              echo "Échec ($base, essai $i), nouvel essai dans 2 minutes"; sleep 120
+          # télécharge un fichier .osm.pbf et vérifie son empreinte MD5 (Geofabrik, puis son miroir openstreetmap.fr)
+          get() {
+            for base in "https://download.geofabrik.de" "https://download.openstreetmap.fr/extracts"; do
+              for i in 1 2 3; do
+                rm -f "$2" "$2.md5"
+                curl -fsSL --retry 5 --retry-all-errors --retry-delay 20 -o "$2.md5" "$base/$1-latest.osm.pbf.md5"; r1=$?
+                r2=-; r3=-
+                if [ $r1 = 0 ]; then curl -fsSL --retry 5 --retry-all-errors --retry-delay 20 -o "$2" "$base/$1-latest.osm.pbf"; r2=$?; fi
+                if [ "$r2" = 0 ]; then echo "$(cut -d' ' -f1 "$2.md5")  $2" | md5sum -c --quiet -; r3=$?; fi
+                [ "$r3" = 0 ] && return 0
+                echo "::warning title=Téléchargement ${{ matrix.cc }}::$1 depuis $base, essai $i : md5 $r1, carte $r2, vérification $r3, $(stat -c %s "$2" 2>/dev/null || echo 0) octets"
+                sleep 60
+              done
             done
-          done
-          [ "$ok" = 1 ] || { echo "::error::Carte introuvable pour ${{ matrix.nom }}"; exit 1; }
+            return 1
+          }
+          parts="${{ matrix.parts }}"
+          if [ -z "$parts" ]; then
+            get "${{ matrix.geo }}" /mnt/osm/pays.osm.pbf || { echo "::error::Carte introuvable pour ${{ matrix.nom }}"; exit 1; }
+          else
+            # grand pays : une carte par région, puis assemblage
+            files=""
+            for r in $parts; do
+              get "${{ matrix.geo }}/$r" "/mnt/osm/part-$r.osm.pbf" || { echo "::error::Carte introuvable : ${{ matrix.nom }} / $r"; exit 1; }
+              files="$files /mnt/osm/part-$r.osm.pbf"
+            done
+            osmium merge --overwrite -o /mnt/osm/pays.osm.pbf $files && rm -f $files
+          fi
           ls -lh /mnt/osm
 
       - name: Construire
