@@ -158,7 +158,7 @@ par_nom = defaultdict(list)
 for v in villes:
     for k in v['keys']: par_nom[k].append(v)
 ctree = STRtree([c['geom'] for c in communes])
-ajout = []
+ajout, trace = [], []
 for r in sorted((r for r in regions if 4 <= r['al'] < lvl), key=lambda r: -r['al']):
     rk = _key(r['name'])
     if not rk: continue
@@ -166,12 +166,17 @@ for r in sorted((r for r in regions if 4 <= r['al'] < lvl), key=lambda r: -r['al
     if not v: continue
     g = r['raw']; area = g.area or 1
     couvert = sum(g.intersection(communes[int(i)]['geom']).area for i in ctree.query(g)) / area
+    trace.append((v['pop'], f"{r['name']} (niv. {r['al']}, couvert {couvert:.0%})"))
     if couvert > 0.5: continue                              # déjà découpée en communes (cas normal)
     if any(a['geom'].intersection(g).area > 0.5 * min(area, a['geom'].area) for a in ajout): continue   # pas deux fois la même ville
     c = v['pt'] if g.contains(v['pt']) else g.representative_point()
     ajout.append({'id': 'r' + str(r['id']), 'name': v['name'] or r['name'], 'geom': g, 'lat': round(c.y, 5), 'lon': round(c.x, 5),
                   'pop': v['pop'], 'al': r['al']})
 print(len(ajout), 'grandes villes ajoutées :', ', '.join(a['name'] for a in sorted(ajout, key=lambda a: -a['pop'])[:40]), flush=True)
+# rapport lisible dans les annotations de GitHub Actions
+print(f"::notice title={CC} villes-régions::{len(villes)} villes, {sum(1 for r in regions if 4 <= r['al'] < lvl)} limites 4-{lvl - 1} ; "
+      f"ajoutées ({len(ajout)}) : {', '.join(a['name'] for a in sorted(ajout, key=lambda a: -a['pop'])[:25])} ; "
+      f"candidates : {' | '.join(t for _, t in sorted(trace, reverse=True)[:15])}", flush=True)
 communes += ajout
 del villes, par_nom, ctree
 
