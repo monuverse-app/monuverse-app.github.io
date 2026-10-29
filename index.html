@@ -26,27 +26,27 @@
   <section id="v-welcome" class="view welcome" hidden>
     <div class="wel-top">
       <img class="brand" src="icons/logo.jpg" width="720" height="607" alt="Monuverse">
-      <h1>Ta ville est une collection.</h1>
-      <p>Statues, fontaines, églises, fresques, monuments : approche-toi d'un lieu pour débloquer sa carte. Complète ta ville, garde ta série, grimpe au classement.</p>
+      <h1 data-i18n="h1">Ta ville est une collection.</h1>
+      <p data-i18n="intro">Statues, fontaines, églises, fresques, monuments : approche-toi d'un lieu pour débloquer sa carte. Complète ta ville, garde ta série, grimpe au classement.</p>
     </div>
     <div class="wel-card">
-      <button class="btn gold" id="w-gps">Trouver ma ville avec ma position</button>
-      <div class="or"><span>ou</span></div>
+      <button class="btn gold" id="w-gps" data-i18n="gps">Trouver ma ville avec ma position</button>
+      <div class="or"><span data-i18n="or">ou</span></div>
       <form id="w-form" class="search-row">
-        <input id="w-q" type="search" placeholder="Nom de ta ville ou de ton village" aria-label="Nom de ta ville ou de ton village" autocomplete="off" required minlength="2">
-        <button class="btn ghost small" type="submit">Chercher</button>
+        <input id="w-q" type="search" placeholder="Nom de ta ville ou de ton village" aria-label="Nom de ta ville ou de ton village" data-i18n-ph="q" autocomplete="off" required minlength="2">
+        <button class="btn ghost small" type="submit" data-i18n="search">Chercher</button>
       </form>
       <div id="w-res" class="results" aria-live="polite"></div>
     </div>
-    <p class="fine">Les lieux viennent d'OpenStreetMap, la carte libre du monde. Ta position sert seulement à vérifier que tu es devant un lieu ; elle ne quitte pas ton téléphone.</p>
-    <p class="fine copy">© 2026 Monuverse. Tous droits réservés.</p>
+    <p class="fine" data-i18n="privacy">Les lieux viennent d'OpenStreetMap, la carte libre du monde. Ta position sert seulement à vérifier que tu es devant un lieu ; elle ne quitte pas ton téléphone.</p>
+    <p class="fine copy" data-i18n="copy">© 2026 Monuverse. Tous droits réservés.</p>
   </section>
 
   <!-- Chargement de la ville -->
   <section id="v-loading" class="view loading" hidden>
     <div class="spinner" aria-hidden="true"></div>
-    <b id="l-title">Recherche des lieux…</b>
-    <span id="l-sub">On parcourt la carte de ta ville.</span>
+    <b id="l-title" data-i18n="loading">Recherche des lieux…</b>
+    <span id="l-sub" data-i18n="loadsub">On parcourt la carte de ta ville.</span>
   </section>
 
   <!-- Appli -->
@@ -68,11 +68,11 @@
     </div>
 
     <nav class="tabbar" aria-label="Navigation">
-      <button class="tab" data-tab="ville" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21V10l9-6 9 6v11h-6v-6H9v6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>Ma ville</button>
-      <button class="tab" data-tab="globe" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>Globe</button>
-      <button class="tab scan" data-tab="scan" aria-selected="false"><span class="disc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>Explorer</button>
-      <button class="tab" data-tab="rank" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V13h4v8zM10 21V7h4v14zM16 21v-11h4v11z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>Classement</button>
-      <button class="tab" data-tab="moi" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Moi</button>
+      <button class="tab" data-tab="ville" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21V10l9-6 9 6v11h-6v-6H9v6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span data-i18n="tville">Ma ville</span></button>
+      <button class="tab" data-tab="globe" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><span data-i18n="tglobe">Globe</span></button>
+      <button class="tab scan" data-tab="scan" aria-selected="false"><span class="disc"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" fill="currentColor"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><span data-i18n="tscan">Explorer</span></button>
+      <button class="tab" data-tab="rank" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 21V13h4v8zM10 21V7h4v14zM16 21v-11h4v11z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg><span data-i18n="trank">Classement</span></button>
+      <button class="tab" data-tab="moi" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span data-i18n="tmoi">Moi</span></button>
     </nav>
   </section>
 </div>

@@ -2,7 +2,7 @@
 'use strict';
 /* Anti-clickjacking : Monuverse ne fonctionne jamais à l'intérieur d'une autre page */
 if (window.top !== window.self) {
-  document.documentElement.innerHTML = '<body style="margin:0;font:16px system-ui;background:#070C1A;color:#EEF2FA;display:grid;place-items:center;height:100vh;text-align:center;padding:20px"><p>Pour ta sécurité, Monuverse s\'ouvre uniquement sur son propre site.<br><a href="https://monuverse.fr/" target="_top" rel="noopener" style="color:#4FE0CF">Ouvrir Monuverse</a></p></body>';
+  document.documentElement.innerHTML = '<body style="margin:0;font:16px system-ui;background:#070C1A;color:#EEF2FA;display:grid;place-items:center;height:100vh;text-align:center;padding:20px"><p>Pour ta sécurité, Monuverse s\'ouvre uniquement sur son propre site.<br>For your safety, Monuverse only opens on its own website.<br><br><a href="https://monuverse.fr/" target="_top" rel="noopener" style="color:#4FE0CF">Ouvrir Monuverse · Open Monuverse</a></p></body>';
   throw new Error('Monuverse ne peut pas être affiché dans un cadre.');
 }
 /* Monuverse v1 — une seule boucle : ta ville, ses vrais lieux, un scan par GPS, une série quotidienne, un classement local. */
@@ -11,7 +11,73 @@ const CFG = window.MONUVERSE_CONFIG || {};
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmt = n => Math.round(n).toLocaleString('fr-FR');
+/* ---------- Langue : français ou anglais selon le téléphone, modifiable dans « Moi » ---------- */
+let LANG = 'fr';
+const L = (fr, en) => LANG === 'en' ? en : fr;
+const LOC = () => LANG === 'en' ? 'en-GB' : 'fr-FR';
+const fmt = n => Math.round(n).toLocaleString(LOC());
+const nPl = n => LANG === 'en' ? `${n} place${n !== 1 ? 's' : ''}` : `${n} lieu${n > 1 ? 'x' : ''}`;
+const nDays = n => LANG === 'en' ? `${n} day${n !== 1 ? 's' : ''}` : `${n} jour${n > 1 ? 's' : ''}`;
+const nCities = n => LANG === 'en' ? `${n} cit${n !== 1 ? 'ies' : 'y'}` : `${n} ville${n > 1 ? 's' : ''}`;
+const STATIC = {
+  h1: ['Ta ville est une collection.', 'Your city is a collection.'],
+  intro: ["Statues, fontaines, églises, fresques, monuments : approche-toi d'un lieu pour débloquer sa carte. Complète ta ville, garde ta série, grimpe au classement.", 'Statues, fountains, churches, murals, monuments: get close to a place to unlock its card. Complete your city, keep your streak, climb the leaderboard.'],
+  gps: ['Trouver ma ville avec ma position', 'Find my city with my location'], or: ['ou', 'or'], q: ['Nom de ta ville ou de ton village', 'Name of your city, town or village'],
+  search: ['Chercher', 'Search'],
+  privacy: ["Les lieux viennent d'OpenStreetMap, la carte libre du monde. Ta position sert seulement à vérifier que tu es devant un lieu ; elle ne quitte pas ton téléphone.", "Places come from OpenStreetMap, the free map of the world. Your location is only used to check that you are at a place; it never leaves your phone."],
+  copy: ['© 2026 Monuverse. Tous droits réservés.', '© 2026 Monuverse. All rights reserved.'],
+  loading: ['Recherche des lieux…', 'Looking for places…'], loadsub: ['On parcourt la carte de ta ville.', 'Scanning the map of your city.'],
+  tville: ['Ma ville', 'My city'], tglobe: ['Globe', 'Globe'], tscan: ['Explorer', 'Explore'], trank: ['Classement', 'Ranking'], tmoi: ['Moi', 'Me']
+};
+const KINDS_EN = {
+  mairie: ['Town hall', 'Where the life of the town is decided: council, weddings, civil records.'],
+  cathedrale: ['Cathedral', "The bishop's church, often the largest building in town for centuries."],
+  culte: ['Place of worship', 'Church, temple, mosque or synagogue: often one of the oldest buildings in the area.'],
+  fontaine: ['Fountain', 'Before running water, people came here every day to draw water.'],
+  statue: ['Statue', 'It honours a person or an idea that matters to the town.'],
+  oeuvre: ['Artwork', 'A work of art installed in public space, for everyone to see.'],
+  fresque: ['Mural', 'A wall turned into a giant painting by artists.'],
+  aux_morts: ['War memorial', 'It bears the names of the townspeople who died in the wars. People gather here on remembrance days.'],
+  memorial: ['Memorial', 'It keeps alive the memory of an event or a person.'],
+  plaque: ['Memorial plaque', 'A plaque recalls that an event or a person left their mark here.'],
+  monument: ['Monument', "A structure built to mark the town's history."],
+  musee: ['Museum', 'The treasures and history of the place, gathered for all.'],
+  chateau: ['Castle', 'Home of lords or a fortress, it has seen centuries of history.'],
+  ruines: ['Ruins', 'Remains of an ancient building, witnesses of another era.'],
+  porte: ['City gate', 'In the past, you entered the town through its gates, closed at night.'],
+  croix: ['Wayside cross', 'Crosses and shrines marked roads and crossroads.'],
+  phare: ['Lighthouse', 'Its light guides ships at night.'],
+  moulin: ['Mill', 'Grain was ground here using wind or water.'],
+  chateau_eau: ['Water tower', 'It keeps water up high so that it flows from the taps.'],
+  belvedere: ['Viewpoint', 'The view of the surroundings is worth the trip.'],
+  attraction: ['Sight', 'A place locals recommend to visitors.'],
+  parc: ['Park', 'A green lung to walk and breathe.'],
+  patrimoine: ['Heritage', "A piece of the town's historic heritage."],
+  bibliotheque: ['Library', 'Books, films, games: culture open to everyone.'],
+  culture: ['Cultural venue', "Theatre, arts centre or concert hall: the town's stage."],
+  gare: ['Station', 'The gateway for travellers since the arrival of the railway.'],
+  marche: ['Market', 'Where locals meet to shop and chat.'],
+  kiosque: ['Bandstand', 'In the past, the brass band played here on Sundays.'],
+  horloge: ['Clock', 'It has been telling passers-by the time for years.'],
+  jeux: ['Playground', "The neighbourhood children's adventure ground."],
+  sport: ['Sports facility', 'Stadium, gym or pool: where the town plays sport.'],
+  salle: ['Community place', 'A meeting place for local groups and residents.']
+};
+const kindLabel = k => (LANG === 'en' && KINDS_EN[k] ? KINDS_EN[k][0] : KINDS[k][0]);
+const kindFact = k => (LANG === 'en' && KINDS_EN[k] ? KINDS_EN[k][1] : KINDS[k][4]);
+const RAR_EN = { commune: 'Common', rare: 'Rare', epique: 'Epic', legendaire: 'Legendary' };
+const rarLabel = r => (LANG === 'en' ? RAR_EN[r] : RAR[r][0]);
+/* Nom affiché : les noms génériques créés par Monuverse (« Aire de jeux · près de l'Église… ») sont traduits */
+function pname(p) {
+  let n = p.n;
+  if (LANG !== 'en') return n;
+  n = n.replace(/ n°(\d+)$/, ' no. $1');
+  if (!p.named) {
+    for (const k of Object.keys(KINDS)) if (n.startsWith(KINDS[k][0])) { n = KINDS_EN[k][0] + n.slice(KINDS[k][0].length); break; }
+    n = n.replace(/ · près (?:de l'|du |de la |des |de )/, ' · near ').replace(/^Mairie\b/, 'Town hall');
+  }
+  return n;
+}
 const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 const buzz = p => { try { navigator.vibrate && navigator.vibrate(p); } catch (e) {} };
 
@@ -251,14 +317,14 @@ async function nearestFR(lat, lon) {
   return best && bd < 15000 ? frCity(j, best) : null;
 }
 async function searchCities(q) {
-  const u = `${NOMINATIM}/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&limit=6&featureType=settlement&accept-language=fr`;
+  const u = `${NOMINATIM}/search?q=${encodeURIComponent(q)}&format=jsonv2&addressdetails=1&limit=6&featureType=settlement&accept-language=${LANG}`;
   const r = await fetch(u, { headers: { Accept: 'application/json' } });
   if (!r.ok) throw new Error('search ' + r.status);
   return (await r.json()).map(cityFromNominatim).filter(Boolean);
 }
 async function cityAt(lat, lon) {
   if (inFR(lat, lon)) { try { const c = await nearestFR(lat, lon); if (c) return c; } catch (e) {} }
-  const u = `${NOMINATIM}/reverse?lat=${lat}&lon=${lon}&format=jsonv2&zoom=10&addressdetails=1&accept-language=fr`;
+  const u = `${NOMINATIM}/reverse?lat=${lat}&lon=${lon}&format=jsonv2&zoom=10&addressdetails=1&accept-language=${LANG}`;
   const r = await fetch(u, { headers: { Accept: 'application/json' } });
   if (!r.ok) throw new Error('reverse ' + r.status);
   const j = await r.json();
@@ -363,9 +429,11 @@ function bearing(a, b) {
   const x = Math.cos(a.lat * toR) * Math.sin(b.lat * toR) - Math.sin(a.lat * toR) * Math.cos(b.lat * toR) * Math.cos((b.lon - a.lon) * toR);
   return (Math.atan2(y, x) / toR + 360) % 360;
 }
-const distTxt = m => m < 1000 ? `${Math.round(m / 5) * 5} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0).replace('.', ',')} km`;
+const distTxt = m => m < 1000 ? `${Math.round(m / 5) * 5} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0).replace('.', LANG === 'en' ? '.' : ',')} km`;
 const CARD = ['nord', 'nord-est', 'est', 'sud-est', 'sud', 'sud-ouest', 'ouest', 'nord-ouest'];
-const cardinal = b => CARD[Math.round(b / 45) % 8];
+const CARD_EN = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+const cardinal = b => (LANG === 'en' ? CARD_EN : CARD)[Math.round(b / 45) % 8];
+const toward = b => L(`vers le ${cardinal(b)}`, `to the ${cardinal(b)}`);
 
 /* ---------- État et sauvegarde ---------- */
 const KEY = 'monuverse-v1';
@@ -387,9 +455,10 @@ function load() {
     S.dailyBonus = d.dailyBonus && typeof d.dailyBonus === 'object' ? Object.fromEntries(Object.keys(d.dailyBonus).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k)).slice(0, 3).map(k => [k, true])) : {};
     S.theme = ['auto', 'light', 'dark'].includes(d.theme) ? d.theme : 'auto';
     S.nav = ['plans', 'google', 'waze'].includes(d.nav) ? d.nav : undefined;
+    S.lang = ['auto', 'fr', 'en'].includes(d.lang) ? d.lang : 'auto';
   } catch (e) {}
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast("Ton téléphone n'a plus de place pour sauvegarder.", true); } }
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast(L("Ton téléphone n'a plus de place pour sauvegarder.", 'Your phone is out of storage space.'), true); } }
 const city = () => S.cities[S.current];
 const got = (c, p) => !!c.scanned[p.id];
 const nGot = c => Object.keys(c.scanned).length;
@@ -398,7 +467,7 @@ const level = () => 1 + Math.floor(S.xp / 250);
 const streakNow = () => (S.streak.last === today() || S.streak.last === dayBefore(today())) ? S.streak.n : 0;
 const scannedToday = () => S.streak.last === today();
 const totalPlaces = () => Object.values(S.cities).reduce((s, c) => s + nGot(c), 0);
-const pseudo = () => S.pseudo || 'Explorateur';
+const pseudo = () => S.pseudo || L('Explorateur', 'Explorer');
 
 /* Lieu du jour : choisi chaque jour parmi les lieux pas encore débloqués, le plus proche du centre en priorité */
 function dailyPlace(c) {
@@ -543,7 +612,7 @@ function toast(msg, err) {
 }
 function header() {
   const c = city();
-  $('#t-cityname').textContent = c ? c.name : 'Ma ville';
+  $('#t-cityname').textContent = c ? c.name : L('Ma ville', 'My city');
   const n = streakNow();
   $('#t-streak').className = 'streak-chip' + (scannedToday() ? '' : ' cold');
   $('#t-streak').innerHTML = `${FLAME}${n}`;
@@ -557,14 +626,14 @@ function ringSVG(p, size = 112) {
   const r = 46, C = 2 * Math.PI * r;
   return `<svg class="ring" viewBox="0 0 112 112" width="${size}" height="${size}" aria-hidden="true"><defs><linearGradient id="rg" x1="0" x2="1"><stop offset="0" stop-color="#C8862A"/><stop offset=".6" stop-color="#F5B841"/><stop offset="1" stop-color="#FFE2A0"/></linearGradient></defs>
     <circle class="tr" cx="56" cy="56" r="${r}"/><circle class="pr" cx="56" cy="56" r="${r}" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p / 100)}" transform="rotate(-90 56 56)"/>
-    <text x="56" y="52">${p}%</text><text class="sm" x="56" y="74">complétée</text></svg>`;
+    <text x="56" y="52">${p}%</text><text class="sm" x="56" y="74">${L('complétée', 'complete')}</text></svg>`;
 }
 function placeRow(c, p, here) {
   const g = got(c, p), d = here ? dist(here, p) : null, isDaily = dailyPlace(c) === p;
   return `<button class="pl r-${p.r} ${g ? 'got' : 'locked'} ${isDaily && !g ? 'today' : ''}" data-p="${p.id}">
     <span class="ic" data-ph="${g ? p.id : ''}">${shape(KINDS[p.k][1])}</span>
-    <div><b>${esc(p.n)}</b><span>${KINDS[p.k][0]}${isDaily && !g ? ' · lieu du jour ×2' : ''}${g ? ' · débloqué' : ''}</span></div>
-    <span class="rt">${d !== null ? `<span class="dist">${distTxt(d)}</span>` : ''}<span class="gem">${RAR[p.r][0]}</span></span></button>`;
+    <div><b>${esc(pname(p))}</b><span>${kindLabel(p.k)}${isDaily && !g ? L(' · lieu du jour ×2', ' · place of the day ×2') : ''}${g ? L(' · débloqué', ' · unlocked') : ''}</span></div>
+    <span class="rt">${d !== null ? `<span class="dist">${distTxt(d)}</span>` : ''}<span class="gem">${rarLabel(p.r)}</span></span></button>`;
 }
 async function fillPhotos(root) {
   for (const el of root.querySelectorAll('[data-ph]')) {
@@ -583,23 +652,23 @@ function renderVille() {
   const list = c.places.filter(x => filter === 'tous' ? true : filter === 'got' ? got(c, x) : filter === 'todo' ? !got(c, x) : x.k === filter).sort(order);
   $('#s-ville').innerHTML = `
     <div class="hero">${ringSVG(p)}
-      <div><h2>${n} lieu${n > 1 ? 'x' : ''} sur ${N}</h2>
-        <p>${N - n ? `Encore ${N - n} à découvrir à ${esc(c.name)}.` : `Tu as complété ${esc(c.name)}. Bravo !`}</p>
-        <div class="xp"><span>Niveau ${lvl} · ${fmt(S.xp)} XP</span><div class="bar"><i style="width:${into / 2.5}%"></i></div></div></div></div>
+      <div><h2>${L(`${nPl(n)} sur ${N}`, `${n} of ${nPl(N)}`)}</h2>
+        <p>${N - n ? L(`Encore ${N - n} à découvrir à ${esc(c.name)}.`, `${N - n} more to discover in ${esc(c.name)}.`) : L(`Tu as complété ${esc(c.name)}. Bravo !`, `You completed ${esc(c.name)}. Well done!`)}</p>
+        <div class="xp"><span>${L('Niveau', 'Level')} ${lvl} · ${fmt(S.xp)} XP</span><div class="bar"><i style="width:${into / 2.5}%"></i></div></div></div></div>
     <div class="daily ${doneToday ? 'done' : ''}">
       <span class="ic">${doneToday ? FLAME : shape(daily ? KINDS[daily.k][1] : 'statue')}</span>
-      <div><span class="eyebrow">${doneToday ? 'Série gardée' : "Défi du jour"}</span>
-        <b>${doneToday ? `${streakNow()} jour${streakNow() > 1 ? 's' : ''} de suite. Reviens demain !` : daily ? `Débloque « ${esc(daily.n)} » : XP doublée` : 'Débloque un lieu aujourd\'hui'}</b>
-        <span>${doneToday ? (daily ? `Demain, un nouveau lieu du jour.` : '') : `Un lieu par jour garde ta série${streakNow() ? ` de ${streakNow()} jour${streakNow() > 1 ? 's' : ''}` : ''}.`}</span></div>
-      ${!doneToday && daily ? `<button class="go" data-p="${daily.id}">Voir</button>` : ''}</div>
-    <div class="share-row"><button class="btn gold" id="v-story">Partager ma ville</button><button class="btn ghost" id="v-explore">Explorer</button></div>
-    <div class="sec"><h3>Les lieux de ${esc(c.name)}</h3><span>${here ? 'du plus proche au plus loin' : 'active le GPS pour les distances'}</span></div>
+      <div><span class="eyebrow">${doneToday ? L('Série gardée', 'Streak kept') : L('Défi du jour', "Today's challenge")}</span>
+        <b>${doneToday ? L(`${nDays(streakNow())} de suite. Reviens demain !`, `${nDays(streakNow())} in a row. Come back tomorrow!`) : daily ? L(`Débloque « ${esc(pname(daily))} » : XP doublée`, `Unlock “${esc(pname(daily))}”: double XP`) : L('Débloque un lieu aujourd\'hui', 'Unlock a place today')}</b>
+        <span>${doneToday ? (daily ? L('Demain, un nouveau lieu du jour.', 'Tomorrow, a new place of the day.') : '') : L(`Un lieu par jour garde ta série${streakNow() ? ` de ${nDays(streakNow())}` : ''}.`, `One place a day keeps your${streakNow() ? ` ${nDays(streakNow())}` : ''} streak alive.`)}</span></div>
+      ${!doneToday && daily ? `<button class="go" data-p="${daily.id}">${L('Voir', 'View')}</button>` : ''}</div>
+    <div class="share-row"><button class="btn gold" id="v-story">${L('Partager ma ville', 'Share my city')}</button><button class="btn ghost" id="v-explore">${L('Explorer', 'Explore')}</button></div>
+    <div class="sec"><h3>${L('Les lieux de', 'Places in')} ${esc(c.name)}</h3><span>${here ? L('du plus proche au plus loin', 'nearest first') : L('active le GPS pour les distances', 'turn on GPS to see distances')}</span></div>
     <div class="chips" role="group" aria-label="Filtrer">
-      ${[['tous', 'Tous'], ['todo', 'À découvrir'], ['got', 'Débloqués']].concat(kinds.map(k => [k, KINDS[k][0]])).map(([k, l]) => `<button class="chip" data-f="${k}" aria-pressed="${filter === k}">${l}</button>`).join('')}
+      ${[['tous', L('Tous', 'All')], ['todo', L('À découvrir', 'To discover')], ['got', L('Débloqués', 'Unlocked')]].concat(kinds.map(k => [k, kindLabel(k)])).map(([k, l]) => `<button class="chip" data-f="${k}" aria-pressed="${filter === k}">${l}</button>`).join('')}
     </div>
-    <div class="places">${list.slice(0, listMax).map(x => placeRow(c, x, here)).join('') || '<div class="empty">Aucun lieu dans ce filtre.</div>'}</div>
-    ${list.length > listMax ? `<button class="btn ghost more" id="v-more">Afficher ${Math.min(40, list.length - listMax)} lieux de plus</button>` : ''}
-    <p class="fine" style="margin-top:18px">Lieux © contributeurs <a class="link" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>. Il manque un lieu ? Ajoute-le sur OpenStreetMap : il apparaîtra dans Monuverse.</p>`;
+    <div class="places">${list.slice(0, listMax).map(x => placeRow(c, x, here)).join('') || `<div class="empty">${L('Aucun lieu dans ce filtre.', 'No places in this filter.')}</div>`}</div>
+    ${list.length > listMax ? `<button class="btn ghost more" id="v-more">${L(`Afficher ${Math.min(40, list.length - listMax)} lieux de plus`, `Show ${Math.min(40, list.length - listMax)} more places`)}</button>` : ''}
+    <p class="fine" style="margin-top:18px">${L('Lieux © contributeurs', 'Places © contributors of')} <a class="link" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>. ${L('Il manque un lieu ? Ajoute-le sur OpenStreetMap : il apparaîtra dans Monuverse.', 'A place is missing? Add it on OpenStreetMap and it will appear in Monuverse.')}</p>`;
   $$('#s-ville [data-p]').forEach(b => b.onclick = () => openPlace(b.dataset.p));
   $$('#s-ville [data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; listMax = 40; renderVille(); });
   if ($('#v-more')) $('#v-more').onclick = () => { listMax += 40; renderVille(); };
@@ -613,10 +682,10 @@ function cardHTML(c, p, photo, reveal) {
   const i = c.places.indexOf(p) + 1;
   return `<div class="card r-${p.r} ${p.r} ${reveal ? 'reveal' : ''}"><div class="card-in">
     <div class="ct"><span>#${String(i).padStart(3, '0')}</span><span>${esc(c.name.toUpperCase())}</span></div>
-    <div class="art">${photo ? `<img src="${photo}" alt="Ta photo de ${esc(p.n)}">` : shape(KINDS[p.k][1])}</div>
-    <div class="rar">${RAR[p.r][0]} · +${RAR[p.r][1]} XP</div>
-    <div class="nm">${esc(p.n)}</div>
-    <div class="fact">${KINDS[p.k][4]}</div></div></div>`;
+    <div class="art">${photo ? `<img src="${photo}" alt="${L('Ta photo de', 'Your photo of')} ${esc(pname(p))}">` : shape(KINDS[p.k][1])}</div>
+    <div class="rar">${rarLabel(p.r)} · +${RAR[p.r][1]} XP</div>
+    <div class="nm">${esc(pname(p))}</div>
+    <div class="fact">${kindFact(p.k)}</div></div></div>`;
 }
 /* ---------- Itinéraire : Plans (iPhone), Google Maps ou Waze ---------- */
 const IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -631,7 +700,7 @@ function navApps(p) {
   if (S.nav && order.includes(S.nav)) order.sort((a, b) => (b === S.nav) - (a === S.nav));
   return order.map(k => apps.find(a => a[0] === k));
 }
-function navHTML(p, label = 'Y aller') {
+function navHTML(p, label = L('Y aller', 'Go there')) {
   return `<button class="btn ghost nav-toggle" type="button" aria-expanded="false">${label}</button>
     <div class="nav-pick" hidden>${navApps(p).map(([k, l, u]) => `<a class="btn ghost" data-nav="${k}" href="${u}" target="_blank" rel="noopener">${l}</a>`).join('')}</div>`;
 }
@@ -644,28 +713,28 @@ async function openPlace(id) {
   const c = city(), p = c.places.find(x => x.id === id); if (!p) return;
   const g = got(c, p), here = fresh() ? GPS.pos : null, photo = g ? await PhotoDB.url(p.id) : null;
   const d = here ? dist(here, p) : null, near = here && inRange(p, here);
-  const s = sheet(`<div class="tag">${g ? 'Dans ta collection' : 'À découvrir'}</div>
+  const s = sheet(`<div class="tag">${g ? L('Dans ta collection', 'In your collection') : L('À découvrir', 'To discover')}</div>
     ${cardHTML(c, p, photo)}
-    ${g ? `<p>Débloqué le ${new Date(c.scanned[p.id].t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}.</p>`
-      : `<p>${d !== null ? `À ${distTxt(d)}, vers le ${cardinal(bearing(here, p))}. ` : ''}Approche-toi à moins de ${p.rad} m pour le débloquer.</p>`}
-    ${!g && near ? `<button class="btn sea" id="pl-scan">Débloquer ce lieu</button>` : ''}
-    ${g && !photo ? `<button class="btn ghost" id="pl-photo">Ajouter ma photo souvenir</button>` : ''}
+    ${g ? `<p>${L('Débloqué le', 'Unlocked on')} ${new Date(c.scanned[p.id].t).toLocaleDateString(LOC(), { day: 'numeric', month: 'long', year: 'numeric' })}.</p>`
+      : `<p>${d !== null ? L(`À ${distTxt(d)}, ${toward(bearing(here, p))}. `, `${distTxt(d)} away, ${toward(bearing(here, p))}. `) : ''}${L(`Approche-toi à moins de ${p.rad} m pour le débloquer.`, `Get within ${p.rad} m to unlock it.`)}</p>`}
+    ${!g && near ? `<button class="btn sea" id="pl-scan">${L('Débloquer ce lieu', 'Unlock this place')}</button>` : ''}
+    ${g && !photo ? `<button class="btn ghost" id="pl-photo">${L('Ajouter ma photo souvenir', 'Add my souvenir photo')}</button>` : ''}
     <div class="nav-wrap">${navHTML(p)}</div>
-    <div class="row2">${p.w ? `<a class="btn ghost" href="${p.w}" target="_blank" rel="noopener">En savoir plus</a>` : ''}<button class="btn ghost" data-close ${p.w ? '' : 'style="grid-column:1/-1"'}>Fermer</button></div>`);
+    <div class="row2">${p.w ? `<a class="btn ghost" href="${p.w}" target="_blank" rel="noopener">${L('En savoir plus', 'Learn more')}</a>` : ''}<button class="btn ghost" data-close ${p.w ? '' : 'style="grid-column:1/-1"'}>${L('Fermer', 'Close')}</button></div>`);
   bindNav(s);
   if ($('#pl-scan')) $('#pl-scan').onclick = () => unlock(p);
-  if ($('#pl-photo')) $('#pl-photo').onclick = async () => { const f = await askPhoto(); if (!f) return; try { await PhotoDB.put(p.id, await shrink(f)); s.remove(); openPlace(p.id); refresh(); } catch (e) { toast("La photo n'a pas pu être enregistrée.", true); } };
+  if ($('#pl-photo')) $('#pl-photo').onclick = async () => { const f = await askPhoto(); if (!f) return; try { await PhotoDB.put(p.id, await shrink(f)); s.remove(); openPlace(p.id); refresh(); } catch (e) { toast(L("La photo n'a pas pu être enregistrée.", 'The photo could not be saved.'), true); } };
 }
 
 /* ---------- Débloquer : GPS obligatoire, photo souvenir facultative ---------- */
 async function unlock(p, gift = false) {
   const c = city();
   if (got(c, p)) return;
-  if (!gift && !(fresh() && inRange(p))) { toast(`Rapproche-toi de « ${p.n} » pour le débloquer.`, true); return; }
+  if (!gift && !(fresh() && inRange(p))) { toast(L(`Rapproche-toi de « ${pname(p)} » pour le débloquer.`, `Get closer to “${pname(p)}” to unlock it.`), true); return; }
   let photo = null;
   if (!gift) {
-    const s = sheet(`<div class="tag">Tu y es !</div><h3>${esc(p.n)}</h3><p>Prends une photo souvenir : elle deviendra l'image de ta carte.</p>
-      <button class="btn gold" id="u-photo">Prendre la photo</button><button class="btn ghost" id="u-skip">Débloquer sans photo</button>`);
+    const s = sheet(`<div class="tag">${L('Tu y es !', "You're here!")}</div><h3>${esc(pname(p))}</h3><p>${L("Prends une photo souvenir : elle deviendra l'image de ta carte.", 'Take a souvenir photo: it will become the picture on your card.')}</p>
+      <button class="btn gold" id="u-photo">${L('Prendre la photo', 'Take the photo')}</button><button class="btn ghost" id="u-skip">${L('Débloquer sans photo', 'Unlock without a photo')}</button>`);
     photo = await new Promise(res => {
       $('#u-photo').onclick = async () => { const f = await askPhoto(); res(f || null); };
       $('#u-skip').onclick = () => res(null);
@@ -683,17 +752,17 @@ async function unlock(p, gift = false) {
   }
   const p0 = pct(c);
   const extra = [];
-  if (p0 >= 50 && Math.round(100 * (nGot(c) - 1) / c.places.length) < 50) { xp += 100; extra.push('Moitié de la ville : +100 XP'); }
-  if (p0 === 100) { xp += 300; extra.push('Ville complétée : +300 XP'); }
+  if (p0 >= 50 && Math.round(100 * (nGot(c) - 1) / c.places.length) < 50) { xp += 100; extra.push(L('Moitié de la ville : +100 XP', 'Half the city: +100 XP')); }
+  if (p0 === 100) { xp += 300; extra.push(L('Ville complétée : +300 XP', 'City completed: +300 XP')); }
   S.xp += xp; save(); LB.sync();
   buzz([30, 40, 60]);
   const url = await PhotoDB.url(p.id);
   const burst = calm() ? '' : `<div class="burst" aria-hidden="true">${Array.from({ length: 22 }, (_, k) => `<i style="--a:${k * 360 / 22}deg;--r:${110 + (k * 37) % 70}px;--c:${['#F5B841', '#4FE0CF', '#B07CF2', '#FFE2A0'][k % 4]}"></i>`).join('')}</div>`;
-  sheet(`<div class="tag">${gift ? 'Cadeau de bienvenue' : 'Nouveau lieu débloqué'}</div>${burst}
+  sheet(`<div class="tag">${gift ? L('Cadeau de bienvenue', 'Welcome gift') : L('Nouveau lieu débloqué', 'New place unlocked')}</div>${burst}
     ${cardHTML(c, p, url, true)}
-    <div class="rewards"><span class="hi">+${xp} XP</span>${daily ? '<span>Lieu du jour ×2</span>' : ''}${!gift && !had ? `<span>Série : ${S.streak.n} jour${S.streak.n > 1 ? 's' : ''}</span>` : ''}${level() > lv0 ? `<span class="hi">Niveau ${level()} !</span>` : ''}${extra.map(e => `<span class="hi">${e}</span>`).join('')}</div>
-    <p>${nGot(c)} lieu${nGot(c) > 1 ? 'x' : ''} sur ${c.places.length} à ${esc(c.name)} · ${p0} %</p>
-    <div class="row2"><button class="btn ghost" id="r-share">Partager</button><button class="btn gold" data-close>Continuer</button></div>`, refresh);
+    <div class="rewards"><span class="hi">+${xp} XP</span>${daily ? `<span>${L('Lieu du jour ×2', 'Place of the day ×2')}</span>` : ''}${!gift && !had ? `<span>${L('Série', 'Streak')} : ${nDays(S.streak.n)}</span>` : ''}${level() > lv0 ? `<span class="hi">${L('Niveau', 'Level')} ${level()} !</span>` : ''}${extra.map(e => `<span class="hi">${e}</span>`).join('')}</div>
+    <p>${L(`${nPl(nGot(c))} sur ${c.places.length} à ${esc(c.name)}`, `${nGot(c)} of ${nPl(c.places.length)} in ${esc(c.name)}`)} · ${p0}${L(' %', '%')}</p>
+    <div class="row2"><button class="btn ghost" id="r-share">${L('Partager', 'Share')}</button><button class="btn gold" data-close>${L('Continuer', 'Continue')}</button></div>`, refresh);
   $('#r-share').onclick = shareStory;
   refresh();
 }
@@ -707,12 +776,12 @@ function renderScan() {
   if (!scanSub) { let lastR = 0; scanSub = () => { nearBadge(); if (tab === 'scan' && !document.querySelector('.sheet') && !document.querySelector('#s-scan .nav-pick:not([hidden])') && Date.now() - lastR > 2500) { lastR = Date.now(); renderScan(); } }; GPS.subs.add(scanSub); }
   const el = $('#s-scan');
   if (GPS.err === 'denied' || GPS.err === 'none') {
-    el.innerHTML = `<div class="gps bad"><i></i><div><b>GPS désactivé</b><br><span>Monuverse a besoin de ta position pour vérifier que tu es devant un lieu.</span></div></div>
-      <div class="note"><b>Pour l'activer</b><span>Sur iPhone : Réglages › Confidentialité › Service de localisation › ton navigateur › « Lorsque l'app est active ». Sur Android : touche le cadenas à gauche de l'adresse › Autorisations › Position.</span><span>Puis recharge la page.</span></div>`;
+    el.innerHTML = `<div class="gps bad"><i></i><div><b>${L('GPS désactivé', 'GPS is off')}</b><br><span>${L('Monuverse a besoin de ta position pour vérifier que tu es devant un lieu.', 'Monuverse needs your location to check that you are at a place.')}</span></div></div>
+      <div class="note"><b>${L("Pour l'activer", 'To turn it on')}</b><span>${L("Sur iPhone : Réglages › Confidentialité › Service de localisation › ton navigateur › « Lorsque l'app est active ». Sur Android : touche le cadenas à gauche de l'adresse › Autorisations › Position.", 'On iPhone: Settings › Privacy › Location Services › your browser › “While Using the App”. On Android: tap the padlock left of the address › Permissions › Location.')}</span><span>${L('Puis recharge la page.', 'Then reload the page.')}</span></div>`;
     return;
   }
   if (!GPS.pos) {
-    el.innerHTML = `<div class="gps"><i></i><div><b>Recherche de ta position…</b><br><span>Autorise la localisation si ton téléphone te le demande.</span></div></div><div class="spinner" style="margin:40px auto"></div>`;
+    el.innerHTML = `<div class="gps"><i></i><div><b>${L('Recherche de ta position…', 'Finding your location…')}</b><br><span>${L('Autorise la localisation si ton téléphone te le demande.', 'Allow location access if your phone asks.')}</span></div></div><div class="spinner" style="margin:40px auto"></div>`;
     return;
   }
   const me = GPS.pos, acc = Math.round(me.acc);
@@ -722,11 +791,11 @@ function renderScan() {
   const R = 600, around = c.places.map(p => ({ p, d: dist(me, p), b: bearing(me, p) })).filter(x => x.d <= R);
   const dots = around.map(({ p, d, b }) => {
     const rr = d / R * 130, a = (b - 90) * Math.PI / 180, x = 150 + rr * Math.cos(a), y = 150 + rr * Math.sin(a);
-    return `<g class="dot ${got(c, p) ? 'got' : ''} ${daily === p ? 'today' : ''}" data-p="${p.id}" role="button" tabindex="0" aria-label="${esc(p.n)}, ${distTxt(d)}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${got(c, p) ? 5 : 7}" fill="var(--r-${p.r})"/></g>`;
+    return `<g class="dot ${got(c, p) ? 'got' : ''} ${daily === p ? 'today' : ''}" data-p="${p.id}" role="button" tabindex="0" aria-label="${esc(pname(p))}, ${distTxt(d)}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${got(c, p) ? 5 : 7}" fill="var(--r-${p.r})"/></g>`;
   }).join('');
   const ir = near && inRange(near.p, me);
   el.innerHTML = `
-    <div class="gps ${acc <= 30 ? 'ok' : acc <= 100 ? 'warn' : 'bad'}"><i></i><div><b>${acc <= 100 ? 'Position trouvée' : 'Position imprécise'}</b> <span>· précision ${acc} m${acc > 100 ? ' : sors à découvert' : ''}</span></div></div>
+    <div class="gps ${acc <= 30 ? 'ok' : acc <= 100 ? 'warn' : 'bad'}"><i></i><div><b>${acc <= 100 ? L('Position trouvée', 'Location found') : L('Position imprécise', 'Imprecise location')}</b> <span>· ${L('précision', 'accuracy')} ${acc} m${acc > 100 ? L(' : sors à découvert', ': move into the open') : ''}</span></div></div>
     <div class="radar"><svg viewBox="0 0 300 300" aria-label="Radar des lieux autour de toi">
       <defs><radialGradient id="radar-g"><stop offset="0" stop-color="rgba(79,224,207,.14)"/><stop offset="1" stop-color="${document.documentElement.dataset.theme === 'light' ? 'rgba(255,255,255,.95)' : 'rgba(16,25,45,.9)'}"/></radialGradient>
       <linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="rgba(79,224,207,0)"/><stop offset="1" stop-color="rgba(79,224,207,.35)"/></linearGradient></defs>
@@ -736,12 +805,12 @@ function renderScan() {
       ${calm() ? '' : '<path class="sweep" d="M150 150 L150 20 A130 130 0 0 1 242 58 Z" fill="url(#sw)"/>'}
       ${dots}<circle class="me-dot" cx="150" cy="150" r="7"/></svg></div>
     ${near ? `<div class="target r-${near.p.r} ${ir ? 'inrange' : ''}">
-      <div class="row"><span class="ic">${shape(KINDS[near.p.k][1])}</span><div><span class="eyebrow">${ir ? 'Tu y es' : 'Le plus proche'}</span><b>${esc(near.p.n)}</b><span>${KINDS[near.p.k][0]} · ${RAR[near.p.r][0]}${daily === near.p ? ' · lieu du jour ×2' : ''}</span></div></div>
-      ${ir ? `<button class="btn sea" id="sc-go">Débloquer ce lieu</button>`
-        : `<div class="dir"><span style="display:inline-flex;transform:rotate(${bearing(me, near.p).toFixed(0)}deg)">${ARROW}</span><div><b>${distTxt(near.d)}</b> vers le ${cardinal(bearing(me, near.p))}<br><span>Débloquable à moins de ${near.p.rad} m</span></div></div>
-           <div class="nav-wrap">${navHTML(near.p, 'Itinéraire à pied')}</div>`}
-    </div>` : `<div class="empty">Tu as débloqué tous les lieux de ${esc(c.name)} ! Change de ville pour continuer.</div>`}
-    ${near && near.d > 20000 ? `<p class="fine" style="margin-top:12px">Tu sembles loin de ${esc(c.name)}. Touche le nom de la ville en haut pour collectionner la ville où tu te trouves.</p>` : ''}`;
+      <div class="row"><span class="ic">${shape(KINDS[near.p.k][1])}</span><div><span class="eyebrow">${ir ? L('Tu y es', "You're here") : L('Le plus proche', 'Nearest')}</span><b>${esc(pname(near.p))}</b><span>${kindLabel(near.p.k)} · ${rarLabel(near.p.r)}${daily === near.p ? L(' · lieu du jour ×2', ' · place of the day ×2') : ''}</span></div></div>
+      ${ir ? `<button class="btn sea" id="sc-go">${L('Débloquer ce lieu', 'Unlock this place')}</button>`
+        : `<div class="dir"><span style="display:inline-flex;transform:rotate(${bearing(me, near.p).toFixed(0)}deg)">${ARROW}</span><div><b>${distTxt(near.d)}</b> ${toward(bearing(me, near.p))}<br><span>${L(`Débloquable à moins de ${near.p.rad} m`, `Unlockable within ${near.p.rad} m`)}</span></div></div>
+           <div class="nav-wrap">${navHTML(near.p, L('Itinéraire à pied', 'Walking directions'))}</div>`}
+    </div>` : `<div class="empty">${L(`Tu as débloqué tous les lieux de ${esc(c.name)} ! Change de ville pour continuer.`, `You unlocked every place in ${esc(c.name)}! Switch city to keep going.`)}</div>`}
+    ${near && near.d > 20000 ? `<p class="fine" style="margin-top:12px">${L(`Tu sembles loin de ${esc(c.name)}. Touche le nom de la ville en haut pour collectionner la ville où tu te trouves.`, `You seem far from ${esc(c.name)}. Tap the city name at the top to collect the city you are in.`)}</p>` : ''}`;
   if ($('#sc-go')) $('#sc-go').onclick = () => unlock(near.p);
   bindNav(el);
   $$('#s-scan [data-p]').forEach(g => { g.onclick = () => openPlace(g.dataset.p); g.onkeydown = e => { if (e.key === 'Enter') openPlace(g.dataset.p); }; });
@@ -759,17 +828,17 @@ async function renderRank() {
   const el = $('#s-rank');
   const dep = c.dep || c.region || c.country;
   const top = `<div class="seg" role="group"><button data-sc="ville" aria-pressed="${rankScope === 'ville'}">${esc(c.name)}</button><button data-sc="dep" aria-pressed="${rankScope === 'dep'}">${esc(dep)}</button></div>`;
-  const mine = `<div class="note"><b>${esc(pseudo())} · ${fmt(S.xp)} points</b><span>${totalPlaces()} lieu${totalPlaces() > 1 ? 'x' : ''} débloqué${totalPlaces() > 1 ? 's' : ''} · niveau ${level()} · série de ${streakNow()} jour${streakNow() > 1 ? 's' : ''}</span></div>`;
+  const mine = `<div class="note"><b>${esc(pseudo())} · ${fmt(S.xp)} points</b><span>${L(`${nPl(totalPlaces())} débloqué${totalPlaces() > 1 ? 's' : ''} · niveau ${level()} · série de ${nDays(streakNow())}`, `${nPl(totalPlaces())} unlocked · level ${level()} · ${nDays(streakNow())} streak`)}</span></div>`;
   const bind = () => $$('#s-rank [data-sc]').forEach(b => b.onclick = () => { rankScope = b.dataset.sc; renderRank(); });
   if (!S.pseudo) {
-    el.innerHTML = top + `<div class="note" style="margin-bottom:12px"><b>Choisis ton pseudo pour entrer au classement</b><span>Il sera visible par les autres joueurs. Pas ton vrai nom de famille !</span>
-      <form id="rk-form" class="search-row"><input id="rk-ps" maxlength="20" minlength="2" required placeholder="Ton pseudo" aria-label="Ton pseudo"><button class="btn gold small">Valider</button></form></div>` + mine;
+    el.innerHTML = top + `<div class="note" style="margin-bottom:12px"><b>${L('Choisis ton pseudo pour entrer au classement', 'Pick a nickname to join the leaderboard')}</b><span>${L('Il sera visible par les autres joueurs. Pas ton vrai nom de famille !', 'Other players will see it. Not your real surname!')}</span>
+      <form id="rk-form" class="search-row"><input id="rk-ps" maxlength="20" minlength="2" required placeholder="${L('Ton pseudo', 'Your nickname')}" aria-label="${L('Ton pseudo', 'Your nickname')}"><button class="btn gold small">${L('Valider', 'OK')}</button></form></div>` + mine;
     bind();
     $('#rk-form').onsubmit = e => { e.preventDefault(); setPseudo($('#rk-ps').value); renderRank(); };
     return;
   }
   if (!LB.on) {
-    el.innerHTML = top + mine + `<div class="note" style="margin-top:12px"><b>Le classement en ligne ouvre bientôt</b><span>Continue à collectionner : tes points comptent déjà et apparaîtront dès l'ouverture.</span></div>`;
+    el.innerHTML = top + mine + `<div class="note" style="margin-top:12px"><b>${L('Le classement en ligne ouvre bientôt', 'The online leaderboard opens soon')}</b><span>${L("Continue à collectionner : tes points comptent déjà et apparaîtront dès l'ouverture.", 'Keep collecting: your points already count and will show up as soon as it opens.')}</span></div>`;
     bind(); return;
   }
   el.innerHTML = top + `<div class="lb" id="lb"><div class="spinner" style="margin:30px auto"></div></div>` + mine;
@@ -779,15 +848,15 @@ async function renderRank() {
     const rows = rankScope === 'ville' ? await LB.top('ville_id', c.id) : await LB.top('departement', `${c.dep}|${c.cc}`);
     const me = LB.uid();
     $('#lb').innerHTML = rows.length ? rows.map((r, i) => `<div class="lb-row ${r.id === me ? 'me' : ''} ${i < 3 ? 'top' : ''}"><span class="rk">${i + 1}</span><span>${esc(r.pseudo)}${rankScope === 'dep' ? `<small>${esc(r.ville)}</small>` : ''}</span><span class="pts">${fmt(r.points)}</span></div>`).join('')
-      : `<div class="empty">Personne encore ici. Débloque un lieu et deviens le premier collectionneur de ${esc(rankScope === 'ville' ? c.name : dep)} !</div>`;
+      : `<div class="empty">${L(`Personne encore ici. Débloque un lieu et deviens le premier collectionneur de ${esc(rankScope === 'ville' ? c.name : dep)} !`, `Nobody here yet. Unlock a place and become the first collector in ${esc(rankScope === 'ville' ? c.name : dep)}!`)}</div>`;
   } catch (e) {
-    $('#lb').innerHTML = `<div class="empty">Le classement n'a pas pu être chargé. Vérifie ta connexion.</div>`;
+    $('#lb').innerHTML = `<div class="empty">${L("Le classement n'a pas pu être chargé. Vérifie ta connexion.", 'The leaderboard could not be loaded. Check your connection.')}</div>`;
   }
 }
 function setPseudo(v) {
   v = String(v || '').trim().replace(/\s+/g, ' ').slice(0, 20);
-  if (v.length < 2) { toast('Ton pseudo doit faire au moins 2 caractères.', true); return false; }
-  if (!/^[\p{L}\p{N} _.'-]{2,20}$/u.test(v)) { toast('Ton pseudo peut contenir des lettres, des chiffres, des espaces et . _ \' - uniquement.', true); return false; }
+  if (v.length < 2) { toast(L('Ton pseudo doit faire au moins 2 caractères.', 'Your nickname must be at least 2 characters.'), true); return false; }
+  if (!/^[\p{L}\p{N} _.'-]{2,20}$/u.test(v)) { toast(L('Ton pseudo peut contenir des lettres, des chiffres, des espaces et . _ \' - uniquement.', 'Your nickname can only contain letters, numbers, spaces and . _ \' -'), true); return false; }
   S.pseudo = v; save(); LB.sync(); header(); return true;
 }
 
@@ -806,7 +875,7 @@ async function storyBlob() {
   const rr0 = (X, Y, w, h, rad) => { x.beginPath(); x.moveTo(X + rad, Y); x.arcTo(X + w, Y, X + w, Y + h, rad); x.arcTo(X + w, Y + h, X, Y + h, rad); x.arcTo(X, Y + h, X, Y, rad); x.arcTo(X, Y, X + w, Y, rad); x.closePath(); };
   if (logo) { const lw = 250, lh = lw * logo.height / logo.width, lx = (W - lw - 36) / 2; x.fillStyle = '#fff'; rr0(lx, 56, lw + 36, lh + 28, 34); x.fill(); x.drawImage(logo, lx + 18, 70, lw, lh); }
   else { x.font = '800 52px Unbounded, sans-serif'; x.fillStyle = '#EEF2FA'; x.fillText('MONUVERSE', W / 2, 150); }
-  x.font = '600 38px Figtree, sans-serif'; x.fillStyle = '#8F9CB7'; x.fillText('Je collectionne', W / 2, 400);
+  x.font = '600 38px Figtree, sans-serif'; x.fillStyle = '#8F9CB7'; x.fillText(L('Je collectionne', "I'm collecting"), W / 2, 400);
   // nom de la ville sur 1 ou 2 lignes
   let fs = 104; x.font = `800 ${fs}px Unbounded, sans-serif`;
   const words = c.name.split(/(?<=[\s-])/); const lines = []; let cur = '';
@@ -821,9 +890,9 @@ async function storyBlob() {
   const rg = x.createLinearGradient(cx - r, 0, cx + r, 0); rg.addColorStop(0, '#C8862A'); rg.addColorStop(.6, '#F5B841'); rg.addColorStop(1, '#FFE2A0');
   x.strokeStyle = rg; x.beginPath(); x.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.max(.02, p / 100) * Math.PI * 2); x.stroke();
   x.fillStyle = '#EEF2FA'; x.font = '800 120px Unbounded, sans-serif'; x.fillText(`${p}%`, cx, cy + 40);
-  x.font = '600 36px Figtree, sans-serif'; x.fillStyle = '#8F9CB7'; x.fillText(`${nGot(c)} lieux sur ${c.places.length}`, cx, cy + 100);
+  x.font = '600 36px Figtree, sans-serif'; x.fillStyle = '#8F9CB7'; x.fillText(L(`${nGot(c)} lieux sur ${c.places.length}`, `${nGot(c)} of ${c.places.length} places`), cx, cy + 100);
   // stats
-  const sy = cy + r + 120, stats = [[`${streakNow()}`, 'jours de suite'], [fmt(S.xp), 'XP'], [`${level()}`, 'niveau']];
+  const sy = cy + r + 120, stats = [[`${streakNow()}`, L('jours de suite', 'day streak')], [fmt(S.xp), 'XP'], [`${level()}`, L('niveau', 'level')]];
   stats.forEach(([v, l], i) => { const sx = W / 2 + (i - 1) * 320; x.fillStyle = '#F5B841'; x.font = '700 70px "JetBrains Mono", monospace'; x.fillText(v, sx, sy); x.fillStyle = '#8F9CB7'; x.font = '600 30px Figtree, sans-serif'; x.fillText(l, sx, sy + 48); });
   // 3 dernières cartes
   const last = Object.entries(c.scanned).sort((a, b) => b[1].t - a[1].t).slice(0, 3).map(([id]) => c.places.find(q => q.id === id)).filter(Boolean);
@@ -840,28 +909,40 @@ async function storyBlob() {
     x.save(); rrect(18, 18, cw - 36, 230, 16); x.clip(); x.fillStyle = '#0B1322'; x.fillRect(18, 18, cw - 36, 230);
     if (img) { const k = Math.max((cw - 36) / img.width, 230 / img.height); x.drawImage(img, 18 + (cw - 36 - img.width * k) / 2, 18 + (230 - img.height * k) / 2, img.width * k, img.height * k); }
     x.restore();
-    x.textAlign = 'left'; x.fillStyle = col[q.r]; x.font = '700 20px "JetBrains Mono", monospace'; x.fillText(RAR[q.r][0].toUpperCase(), 22, 282);
-    x.fillStyle = '#EEF2FA'; x.font = '700 26px Figtree, sans-serif'; let t = q.n; while (x.measureText(t).width > cw - 44 && t.length > 4) t = t.slice(0, -2); if (t !== q.n) t = t.trim() + '…'; x.fillText(t, 22, 322);
+    x.textAlign = 'left'; x.fillStyle = col[q.r]; x.font = '700 20px "JetBrains Mono", monospace'; x.fillText(rarLabel(q.r).toUpperCase(), 22, 282);
+    x.fillStyle = '#EEF2FA'; x.font = '700 26px Figtree, sans-serif'; const qn = pname(q); let t = qn; while (x.measureText(t).width > cw - 44 && t.length > 4) t = t.slice(0, -2); if (t !== qn) t = t.trim() + '…'; x.fillText(t, 22, 322);
     x.textAlign = 'center'; x.restore();
   }
-  x.fillStyle = '#EEF2FA'; x.font = '700 40px Figtree, sans-serif'; x.fillText('Et toi, tu as combien de lieux dans ta ville ?', W / 2, H - 170);
+  x.fillStyle = '#EEF2FA'; x.font = '700 40px Figtree, sans-serif'; x.fillText(L('Et toi, tu as combien de lieux dans ta ville ?', 'How many places can you collect in your city?'), W / 2, H - 170);
   x.fillStyle = '#4FE0CF'; x.font = '700 32px "JetBrains Mono", monospace'; x.fillText((location.host + location.pathname).replace(/\/$/, '').replace(/index\.html$/, '') || 'monuverse', W / 2, H - 110);
   return new Promise(res => cv.toBlob(res, 'image/png'));
 }
 async function shareStory() {
-  const s = sheet(`<div class="tag">Ta story</div><div class="story-prev"><div class="spinner" style="margin:120px auto"></div></div>
-    <div class="row2"><button class="btn gold" id="st-share" disabled>Partager</button><button class="btn ghost" data-close>Fermer</button></div>`);
-  const blob = await storyBlob(); if (!blob) { toast("L'image n'a pas pu être créée.", true); return; }
+  const s = sheet(`<div class="tag">${L('Ta story', 'Your story')}</div><div class="story-prev"><div class="spinner" style="margin:120px auto"></div></div>
+    <div class="row2"><button class="btn gold" id="st-share" disabled>${L('Partager', 'Share')}</button><button class="btn ghost" data-close>${L('Fermer', 'Close')}</button></div>`);
+  const blob = await storyBlob(); if (!blob) { toast(L("L'image n'a pas pu être créée.", 'The image could not be created.'), true); return; }
   const url = URL.createObjectURL(blob);
-  s.querySelector('.story-prev').innerHTML = `<img src="${url}" alt="Ta story Monuverse">`;
+  s.querySelector('.story-prev').innerHTML = `<img src="${url}" alt="${L('Ta story Monuverse', 'Your Monuverse story')}">`;
   const file = new File([blob], `monuverse-${city().name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`, { type: 'image/png' });
   const btn = $('#st-share'); btn.disabled = false;
   const canFiles = navigator.canShare && navigator.canShare({ files: [file] });
-  btn.textContent = canFiles ? 'Partager' : 'Enregistrer l\'image';
+  btn.textContent = canFiles ? L('Partager', 'Share') : L('Enregistrer l\'image', 'Save image');
   btn.onclick = async () => {
-    if (canFiles) { try { await navigator.share({ files: [file], text: `Je collectionne ${city().name} sur Monuverse : ${pct(city())} % !` }); } catch (e) {} return; }
+    if (canFiles) { try { await navigator.share({ files: [file], text: L(`Je collectionne ${city().name} sur Monuverse : ${pct(city())} % !`, `I'm collecting ${city().name} on Monuverse: ${pct(city())}%!`) }); } catch (e) {} return; }
     const a = document.createElement('a'); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove();
   };
+}
+
+/* ---------- Langue ---------- */
+function applyLang() {
+  const want = S.lang === 'fr' || S.lang === 'en' ? S.lang : ((navigator.languages || [navigator.language || 'fr']).find(l => /^(fr|en)/i.test(l)) || 'en').slice(0, 2).toLowerCase();
+  LANG = want === 'fr' ? 'fr' : 'en';
+  document.documentElement.lang = LANG;
+  $$('[data-i18n]').forEach(e => { const t = STATIC[e.dataset.i18n]; if (t) e.textContent = L(t[0], t[1]); });
+  $$('[data-i18n-ph]').forEach(e => { const t = STATIC[e.dataset.i18nPh]; if (t) { e.placeholder = L(t[0], t[1]); e.setAttribute('aria-label', L(t[0], t[1])); } });
+  $('#t-city').setAttribute('aria-label', L('Changer de ville', 'Change city'));
+  document.title = 'Monuverse';
+  if (city() && !$('#v-main').hidden) refresh();
 }
 
 /* ---------- Thème clair / sombre ---------- */
@@ -879,29 +960,31 @@ function renderMoi() {
   const cities = Object.values(S.cities).sort((a, b) => nGot(b) - nGot(a));
   const ncc = new Set(cities.filter(c => nGot(c)).map(c => c.cc)).size;
   $('#s-moi').innerHTML = `
-    <div class="note" style="margin-top:6px"><b>${esc(pseudo())} · ${fmt(S.xp)} XP · niveau ${level()}</b><span>${totalPlaces()} lieu${totalPlaces() > 1 ? 'x' : ''} dans ${cities.length} ville${cities.length > 1 ? 's' : ''} et ${ncc} pays · série en cours : ${streakNow()} jour${streakNow() > 1 ? 's' : ''}</span></div>
-    <form id="pf-form" class="field" style="margin-top:14px"><label for="pf-ps">Pseudo (visible au classement)</label><div class="search-row"><input id="pf-ps" maxlength="20" minlength="2" value="${esc(S.pseudo)}" placeholder="Ton pseudo"><button class="btn ghost small">Enregistrer</button></div></form>
-    <div class="sec"><h3>Mes villes</h3><span>${cities.length}</span></div>
+    <div class="note" style="margin-top:6px"><b>${esc(pseudo())} · ${fmt(S.xp)} XP · ${L('niveau', 'level')} ${level()}</b><span>${L(`${nPl(totalPlaces())} dans ${nCities(cities.length)} et ${ncc} pays · série en cours : ${nDays(streakNow())}`, `${nPl(totalPlaces())} in ${nCities(cities.length)} and ${ncc} countr${ncc !== 1 ? 'ies' : 'y'} · current streak: ${nDays(streakNow())}`)}</span></div>
+    <form id="pf-form" class="field" style="margin-top:14px"><label for="pf-ps">${L('Pseudo (visible au classement)', 'Nickname (shown on the leaderboard)')}</label><div class="search-row"><input id="pf-ps" maxlength="20" minlength="2" value="${esc(S.pseudo)}" placeholder="${L('Ton pseudo', 'Your nickname')}"><button class="btn ghost small">${L('Enregistrer', 'Save')}</button></div></form>
+    <div class="sec"><h3>${L('Mes villes', 'My cities')}</h3><span>${cities.length}</span></div>
     <div class="places">${cities.map(c => `<button class="pl ${c.id === S.current ? 'got' : 'locked'}" data-c="${c.id}"><span class="ic">${shape('columns')}</span><div><b>${esc(c.name)}</b><span>${esc(c.dep || c.country)}</span></div><span class="rt"><span class="dist">${pct(c)} %</span><span class="gem">${nGot(c)}/${c.places.length}</span></span></button>`).join('')}</div>
-    <div class="row2" style="margin-top:10px"><button class="btn gold" id="ct-here">La ville où je suis</button><button class="btn ghost" id="ct-add">Chercher une ville</button></div>
-    <div class="sec"><h3>Réglages</h3></div>
-    <div class="field"><span>Apparence</span><div class="seg three" role="group" aria-label="Apparence">${[['auto', 'Auto'], ['light', 'Clair'], ['dark', 'Sombre']].map(([k, l]) => `<button data-th="${k}" aria-pressed="${(S.theme || 'auto') === k}">${l}</button>`).join('')}</div></div>
+    <div class="row2" style="margin-top:10px"><button class="btn gold" id="ct-here">${L('La ville où je suis', 'The city I am in')}</button><button class="btn ghost" id="ct-add">${L('Chercher une ville', 'Find a city')}</button></div>
+    <div class="sec"><h3>${L('Réglages', 'Settings')}</h3></div>
+    <div class="field"><span>${L('Langue', 'Language')}</span><div class="seg three" role="group" aria-label="${L('Langue', 'Language')}">${[['auto', 'Auto'], ['fr', 'Français'], ['en', 'English']].map(([k, l]) => `<button data-lg="${k}" aria-pressed="${(S.lang || 'auto') === k}">${l}</button>`).join('')}</div></div>
+    <div class="field"><span>${L('Apparence', 'Appearance')}</span><div class="seg three" role="group" aria-label="${L('Apparence', 'Appearance')}">${[['auto', 'Auto'], ['light', L('Clair', 'Light')], ['dark', L('Sombre', 'Dark')]].map(([k, l]) => `<button data-th="${k}" aria-pressed="${(S.theme || 'auto') === k}">${l}</button>`).join('')}</div></div>
     <div style="display:grid;gap:8px">
-      <button class="btn ghost" id="pf-refresh">Mettre à jour les lieux de ${esc(city().name)}</button>
-      <button class="btn ghost" id="pf-wipe">Effacer toutes mes données</button>
+      <button class="btn ghost" id="pf-refresh">${L('Mettre à jour les lieux de', 'Refresh the places of')} ${esc(city().name)}</button>
+      <button class="btn ghost" id="pf-wipe">${L('Effacer toutes mes données', 'Delete all my data')}</button>
     </div>
-    <p class="fine" style="margin-top:14px">Tes collections et tes photos restent sur ce téléphone. Seuls ton pseudo, ta ville et tes points sont envoyés au classement. Lieux © contributeurs OpenStreetMap (ODbL).</p>
-    <p class="fine copy">© 2026 Monuverse. Tous droits réservés. Le nom, le logo, le code et le design de Monuverse sont protégés ; toute copie est interdite sans autorisation.</p>`;
-  $('#pf-form').onsubmit = e => { e.preventDefault(); if (setPseudo($('#pf-ps').value)) { toast('Pseudo enregistré.'); renderMoi(); } };
+    <p class="fine" style="margin-top:14px">${L('Tes collections et tes photos restent sur ce téléphone. Seuls ton pseudo, ta ville et tes points sont envoyés au classement. Lieux © contributeurs OpenStreetMap (ODbL).', 'Your collections and photos stay on this phone. Only your nickname, city and points are sent to the leaderboard. Places © OpenStreetMap contributors (ODbL).')}</p>
+    <p class="fine copy">${L('© 2026 Monuverse. Tous droits réservés. Le nom, le logo, le code et le design de Monuverse sont protégés ; toute copie est interdite sans autorisation.', '© 2026 Monuverse. All rights reserved. The Monuverse name, logo, code and design are protected; copying without permission is prohibited.')}</p>`;
+  $('#pf-form').onsubmit = e => { e.preventDefault(); if (setPseudo($('#pf-ps').value)) { toast(L('Pseudo enregistré.', 'Nickname saved.')); renderMoi(); } };
   $$('#s-moi [data-c]').forEach(b => b.onclick = () => { S.current = b.dataset.c; save(); filter = 'tous'; go('ville'); });
   $$('#s-moi [data-th]').forEach(b => b.onclick = () => { S.theme = b.dataset.th; save(); applyTheme(); renderMoi(); });
+  $$('#s-moi [data-lg]').forEach(b => b.onclick = () => { S.lang = b.dataset.lg; save(); applyLang(); renderMoi(); });
   $('#ct-here').onclick = gpsCity;
   $('#ct-add').onclick = () => welcome(true);
   $('#pf-refresh').onclick = () => loadCity(city(), { force: true });
   $('#pf-wipe').onclick = () => {
     const b = $('#pf-wipe');
     if (b.dataset.sure) { LB.forget(); PhotoDB.clear(); try { localStorage.removeItem(KEY); } catch (e) {} location.reload(); return; }
-    b.dataset.sure = '1'; b.textContent = 'Touche encore pour tout effacer'; b.style.borderColor = 'var(--danger)'; b.style.color = 'var(--danger)';
+    b.dataset.sure = '1'; b.textContent = L('Touche encore pour tout effacer', 'Tap again to delete everything'); b.style.borderColor = 'var(--danger)'; b.style.color = 'var(--danger)';
   };
 }
 const openCities = () => go('moi');
@@ -923,16 +1006,16 @@ async function renderGlobe() {
   const cities = Object.values(S.cities), started = cities.filter(c => nGot(c));
   const ccs = new Set(started.map(c => c.cc));
   $('#s-globe').innerHTML = `
-    <div class="gstats"><div><b>${ccs.size}</b><span>pays</span></div><div><b>${started.length}</b><span>ville${started.length > 1 ? 's' : ''}</span></div><div><b>${totalPlaces()}</b><span>lieu${totalPlaces() > 1 ? 'x' : ''}</span></div></div>
+    <div class="gstats"><div><b>${ccs.size}</b><span>${L('pays', ccs.size > 1 ? 'countries' : 'country')}</span></div><div><b>${started.length}</b><span>${nCities(started.length).replace(/^\d+ /, '')}</span></div><div><b>${totalPlaces()}</b><span>${nPl(totalPlaces()).replace(/^\d+ /, '')}</span></div></div>
     <div class="globe-wrap"><div id="globe" role="img" aria-label="Globe de tes villes et pays"><canvas aria-hidden="true"></canvas><svg class="gpins"></svg></div>
-      <div class="zoom"><button id="gz-in" aria-label="Zoomer">+</button><button id="gz-out" aria-label="Dézoomer">−</button><button id="gz-home" aria-label="Revenir sur ma ville"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button></div>
-      <span class="ghint" id="ghint">Fais glisser ton doigt pour tourner la Terre</span></div>
+      <div class="zoom"><button id="gz-in" aria-label="${L('Zoomer', 'Zoom in')}">+</button><button id="gz-out" aria-label="${L('Dézoomer', 'Zoom out')}">−</button><button id="gz-home" aria-label="${L('Revenir sur ma ville', 'Back to my city')}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button></div>
+      <span class="ghint" id="ghint">${L('Fais glisser ton doigt pour tourner la Terre', 'Drag your finger to spin the Earth')}</span></div>
     <div id="gfocus"></div>
-    <p class="fine">Chaque ville que tu commences allume son pays en or. Voyage, collectionne, et remplis ton globe.</p>
-    <button class="btn ghost" id="g-add" style="margin-top:12px">Ajouter une ville</button>`;
+    <p class="fine">${L('Chaque ville que tu commences allume son pays en or. Voyage, collectionne, et remplis ton globe.', 'Every city you start lights up its country in gold. Travel, collect and fill your globe.')}</p>
+    <button class="btn ghost" id="g-add" style="margin-top:12px">${L('Ajouter une ville', 'Add a city')}</button>`;
   $('#g-add').onclick = () => go('moi');
   let land;
-  try { land = await loadWorld(); } catch (e) { $('#ghint').textContent = "Le globe n'a pas pu se charger. Vérifie ta connexion."; return; }
+  try { land = await loadWorld(); } catch (e) { $('#ghint').textContent = L("Le globe n'a pas pu se charger. Vérifie ta connexion.", 'The globe could not load. Check your connection.'); return; }
   if (tab !== 'globe' || typeof d3 === 'undefined') return;
   drawGlobe(land, ccs);
 }
@@ -1084,26 +1167,26 @@ function focusCity(c, silent) {
   GL.focus = c.id;
   if (!silent) flyGlobe(c, Math.max(GL.k, 8));
   const f = $('#gfocus'); if (!f) return;
-  f.innerHTML = `<div class="gfocus"><b>${esc(c.name)}</b><span>${esc(c.country || c.dep)} · ${nGot(c)}/${c.places.length} lieux · ${pct(c)} %</span><button id="gf-open">${c.id === S.current ? 'Ouvrir' : 'Y jouer'}</button></div>`;
+  f.innerHTML = `<div class="gfocus"><b>${esc(c.name)}</b><span>${esc(c.country || c.dep)} · ${nGot(c)}/${nPl(c.places.length)} · ${pct(c)} %</span><button id="gf-open">${c.id === S.current ? L('Ouvrir', 'Open') : L('Y jouer', 'Play here')}</button></div>`;
   $('#gf-open').onclick = () => { S.current = c.id; save(); filter = 'tous'; go('ville'); };
 }
 
 /* ---------- Accueil et chargement d'une ville ---------- */
 function welcome(back) {
   show('welcome');
-  $('#w-res').innerHTML = back ? `<button class="link" id="w-back">Revenir à ${esc(city().name)}</button>` : '';
+  $('#w-res').innerHTML = back ? `<button class="link" id="w-back">${L('Revenir à', 'Back to')} ${esc(city().name)}</button>` : '';
   if (back) $('#w-back').onclick = () => show('main');
 }
 function gpsCity() {
-  if (!('geolocation' in navigator)) { show('welcome'); $('#w-res').innerHTML = '<p class="msg err">Ton navigateur ne donne pas accès à la position. Cherche ta ville par son nom.</p>'; return; }
-  show('loading'); $('#l-title').textContent = 'Où es-tu ?'; $('#l-sub').textContent = 'Autorise la localisation si ton téléphone te le demande.';
+  if (!('geolocation' in navigator)) { show('welcome'); $('#w-res').innerHTML = `<p class="msg err">${L('Ton navigateur ne donne pas accès à la position. Cherche ta ville par son nom.', 'Your browser does not give access to your location. Search for your city by name.')}</p>`; return; }
+  show('loading'); $('#l-title').textContent = L('Où es-tu ?', 'Where are you?'); $('#l-sub').textContent = L('Autorise la localisation si ton téléphone te le demande.', 'Allow location access if your phone asks.');
   navigator.geolocation.getCurrentPosition(async p => {
     GPS.pos = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, t: Date.now() };
     try { await loadCity(await cityAt(p.coords.latitude, p.coords.longitude)); }
-    catch (e) { show('welcome'); $('#w-res').innerHTML = '<p class="msg err">Impossible de trouver ta ville. Vérifie ta connexion, ou cherche-la par son nom.</p>'; }
+    catch (e) { show('welcome'); $('#w-res').innerHTML = `<p class="msg err">${L('Impossible de trouver ta ville. Vérifie ta connexion, ou cherche-la par son nom.', 'Could not find your city. Check your connection, or search for it by name.')}</p>`; }
   }, e => {
     show('welcome');
-    $('#w-res').innerHTML = `<p class="msg err">${e.code === 1 ? 'La localisation est refusée. Cherche ta ville par son nom, ou autorise la position dans les réglages de ton navigateur.' : 'Ta position est introuvable pour le moment. Cherche ta ville par son nom.'}</p>`;
+    $('#w-res').innerHTML = `<p class="msg err">${e.code === 1 ? L('La localisation est refusée. Cherche ta ville par son nom, ou autorise la position dans les réglages de ton navigateur.', 'Location access was denied. Search for your city by name, or allow location in your browser settings.') : L('Ta position est introuvable pour le moment. Cherche ta ville par son nom.', 'Your location cannot be found right now. Search for your city by name.')}</p>`;
   }, { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 });
 }
 async function loadCity(c, { force = false } = {}) {
@@ -1111,14 +1194,14 @@ async function loadCity(c, { force = false } = {}) {
   if (twin && !S.cities[c.id]) { S.cities[c.id] = Object.assign({}, twin, c, { ver: 0 }); delete S.cities[twin.id]; if (S.current === twin.id) S.current = c.id; save(); }
   const old = S.cities[c.id];
   if (old && !force && old.places.length && old.ver === DATA_VER && Date.now() - (old.fetched || 0) < 14 * 864e5) { S.current = c.id; save(); filter = 'tous'; show('main'); go('ville'); return; }
-  show('loading'); $('#l-title').textContent = `Recherche des lieux de ${c.name}…`; $('#l-sub').textContent = 'Statues, fontaines, églises, fresques, monuments : on parcourt la carte.';
+  show('loading'); $('#l-title').textContent = L(`Recherche des lieux de ${c.name}…`, `Looking for places in ${c.name}…`); $('#l-sub').textContent = L('Statues, fontaines, églises, fresques, monuments : on parcourt la carte.', 'Statues, fountains, churches, murals, monuments: scanning the map.');
   let places;
   try { places = await fetchPlaces(c); }
   catch (e) {
-    if (old) { show('main'); go('ville'); toast("Les lieux n'ont pas pu être mis à jour. Réessaie plus tard.", true); return; }
-    show('welcome'); $('#w-res').innerHTML = `<p class="msg err">La carte de ${esc(c.name)} n'a pas pu être chargée. Vérifie ta connexion et réessaie dans une minute.</p>`; return;
+    if (old) { show('main'); go('ville'); toast(L("Les lieux n'ont pas pu être mis à jour. Réessaie plus tard.", 'Places could not be updated. Try again later.'), true); return; }
+    show('welcome'); $('#w-res').innerHTML = `<p class="msg err">${L(`La carte de ${esc(c.name)} n'a pas pu être chargée. Vérifie ta connexion et réessaie dans une minute.`, `The map of ${esc(c.name)} could not be loaded. Check your connection and try again in a minute.`)}</p>`; return;
   }
-  if (!places.length) { show('welcome'); $('#w-res').innerHTML = `<p class="msg err">Aucun lieu trouvé à ${esc(c.name)} pour le moment. Essaie la ville voisine, ou ajoute des lieux sur OpenStreetMap.</p>`; return; }
+  if (!places.length) { show('welcome'); $('#w-res').innerHTML = `<p class="msg err">${L(`Aucun lieu trouvé à ${esc(c.name)} pour le moment. Essaie la ville voisine, ou ajoute des lieux sur OpenStreetMap.`, `No places found in ${esc(c.name)} yet. Try a neighbouring town, or add places on OpenStreetMap.`)}</p>`; return; }
   const scanned = old ? Object.fromEntries(Object.entries(old.scanned).filter(([id]) => places.some(p => p.id === id))) : {};
   // garde les lieux déjà débloqués même s'ils ont disparu de la carte
   if (old) old.places.filter(p => old.scanned[p.id] && !places.some(q => q.id === p.id)).forEach(p => { places.push(p); scanned[p.id] = old.scanned[p.id]; });
@@ -1132,27 +1215,27 @@ async function loadCity(c, { force = false } = {}) {
 function welcomeGift() {
   const c = city();
   const gift = c.places.find(p => p.k === 'mairie') || c.places.find(p => p.r === 'commune' && p.named) || c.places[0];
-  const s = sheet(`<div class="tag">Bienvenue à ${esc(c.name)}</div>
-    <h3>${esc(c.name)} contient ${c.places.length} lieu${c.places.length > 1 ? 'x' : ''} à collectionner</h3>
-    <p>Pour bien commencer, on t'offre ta première carte.</p>
-    <button class="btn gold" id="g-open">Ouvrir ma première carte</button>`);
+  const s = sheet(`<div class="tag">${L('Bienvenue à', 'Welcome to')} ${esc(c.name)}</div>
+    <h3>${L(`${esc(c.name)} contient ${nPl(c.places.length)} à collectionner`, `${esc(c.name)} has ${nPl(c.places.length)} to collect`)}</h3>
+    <p>${L("Pour bien commencer, on t'offre ta première carte.", 'To get you started, here is your first card.')}</p>
+    <button class="btn gold" id="g-open">${L('Ouvrir ma première carte', 'Open my first card')}</button>`);
   $('#g-open').onclick = () => { s.remove(); unlock(gift, true); };
 }
 
 /* ---------- Démarrage ---------- */
 $('#w-gps').onclick = gpsCity;
-const resRow = (c, i) => `<button class="res" data-i="${i}"><b>${esc(c.name)}</b><span>${esc([c.dep, c.region && c.region !== c.dep ? c.region : '', c.country].filter(Boolean).join(' · '))}${c.n ? ` · ${c.n} lieu${c.n > 1 ? 'x' : ''}` : ''}</span></button>`;
+const resRow = (c, i) => `<button class="res" data-i="${i}"><b>${esc(c.name)}</b><span>${esc([c.dep, c.region && c.region !== c.dep ? c.region : '', c.country].filter(Boolean).join(' · '))}${c.n ? ` · ${nPl(c.n)}` : ''}</span></button>`;
 function showResults(list, q, world) {
   const res = $('#w-res');
-  res.innerHTML = (list.length ? list.map(resRow).join('') : `<p class="msg">${world ? "Aucune ville trouvée. Vérifie l'orthographe ou ajoute le pays, par exemple « Kingston Jamaïque »." : 'Aucune commune de France trouvée.'}</p>`)
-    + (world ? '' : `<button class="link" id="w-world">Ma ville n'est pas en France : chercher dans le monde</button>`);
+  res.innerHTML = (list.length ? list.map(resRow).join('') : `<p class="msg">${world ? L("Aucune ville trouvée. Vérifie l'orthographe ou ajoute le pays, par exemple « Kingston Jamaïque ».", 'No city found. Check the spelling or add the country, e.g. “Kingston Jamaica”.') : L('Aucune commune de France trouvée.', 'No French town found.')}</p>`)
+    + (world ? '' : `<button class="link" id="w-world">${L("Ma ville n'est pas en France : chercher dans le monde", 'My city is not in France: search worldwide')}</button>`);
   $$('#w-res [data-i]').forEach(b => b.onclick = () => loadCity(list[+b.dataset.i]));
   if ($('#w-world')) $('#w-world').onclick = () => searchWorld(q);
 }
 async function searchWorld(q) {
-  $('#w-res').innerHTML = '<p class="msg">Recherche dans le monde…</p>';
+  $('#w-res').innerHTML = `<p class="msg">${L('Recherche dans le monde…', 'Searching worldwide…')}</p>`;
   try { showResults(await searchCities(q), q, true); }
-  catch (err) { $('#w-res').innerHTML = '<p class="msg err">La recherche ne répond pas. Vérifie ta connexion et réessaie.</p>'; }
+  catch (err) { $('#w-res').innerHTML = `<p class="msg err">${L('La recherche ne répond pas. Vérifie ta connexion et réessaie.', 'Search is not responding. Check your connection and try again.')}</p>`; }
 }
 let qTimer = null;
 async function searchLocal(q, submit) {
@@ -1169,6 +1252,7 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) stopG
 
 load();
 applyTheme();
+applyLang();
 (async () => {
   const c = city();
   if (!c) { show('welcome'); return; }
