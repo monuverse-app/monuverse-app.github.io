@@ -782,7 +782,8 @@ function renderScan() {
     return;
   }
   if (!GPS.pos) {
-    el.innerHTML = `<div class="gps"><i></i><div><b>${L('Recherche de ta position…', 'Finding your location…')}</b><br><span>${L('Autorise la localisation si ton téléphone te le demande.', 'Allow location access if your phone asks.')}</span></div></div><div class="spinner" style="margin:40px auto"></div>`;
+    el.innerHTML = `<div class="gps"><i></i><div><b>${L('Recherche de ta position…', 'Finding your location…')}</b><br><span>${L('Autorise la localisation si ton téléphone te le demande.', 'Allow location access if your phone asks.')}</span></div></div><button class="btn ghost what-btn" id="sc-what">${L("Qu'est-ce qu'il y a ici ?", "What's here?")}</button><div class="spinner" style="margin:40px auto"></div>`;
+    $('#sc-what').onclick = whatHere;
     return;
   }
   const me = GPS.pos, acc = Math.round(me.acc);
@@ -822,7 +823,7 @@ function renderScan() {
    pour toutes les villes déjà ouvertes sur ce téléphone). Le nom et le type ; la petite histoire viendra avec Monuverse+. */
 function whatHere() {
   const me = GPS.pos;
-  if (!me) { toast(L('Position introuvable pour le moment.', 'Location not found yet.'), true); return; }
+  if (!me) { toast(L('On cherche encore ta position. Sors à découvert quelques secondes, puis réessaie.', 'Still finding your location. Step outside for a few seconds, then try again.'), true); return; }
   const all = [];
   for (const [cid, c] of Object.entries(S.cities)) for (const p of c.places) all.push({ p, c, cid, d: dist(me, p) });
   all.sort((a, b) => a.d - b.d);
