@@ -5,6 +5,11 @@ name: Données des pays les plus visités
 # S'arrête avant de dépasser 950 Mo de données (limite de GitHub Pages : 1 Go).
 on:
   workflow_dispatch:
+    inputs:
+      pays:
+        description: 'Codes pays à refaire, séparés par des espaces (vide = tous)'
+        required: false
+        default: ''
   schedule:
     - cron: '41 4 2 * *'   # le 2 de chaque mois, après la France
 
@@ -49,6 +54,8 @@ jobs:
         id: budget
         run: |
           git pull -q origin main || true
+          only="${{ github.event.inputs.pays }}"
+          if [ -n "$only" ] && ! echo " $only " | grep -qi " ${{ matrix.cc }} "; then echo "Pays non demandé."; echo "skip=1" >> "$GITHUB_OUTPUT"; exit 0; fi
           used=$(du -sb --exclude=.git . | cut -f1)
           [ -d "data/${{ matrix.cc }}" ] && used=$((used - $(du -sb data/${{ matrix.cc }} | cut -f1)))
           echo "Utilisé hors ce pays : $((used/1000000)) Mo"

@@ -130,9 +130,50 @@ for f in features(TMP + '/bnd.geojsonseq'):
         except ValueError: pop = 0
         communes.append({'id': rid, 'name': name, 'geom': g, 'lat': round(c.y, 5), 'lon': round(c.x, 5), 'pop': pop})
     else:
-        regions.append({'name': name, 'al': al, 'geom': prep(g), 'raw': g})
+        regions.append({'name': name, 'al': al, 'geom': prep(g), 'raw': g, 'id': p.get('@id')})
 print(len(communes), 'communes,', len(regions), 'régions', flush=True)
 if len(communes) < 50: sys.exit(f'{CC} : trop peu de communes au niveau {LEVEL}, vérifie le niveau administratif.')
+
+# 1 bis) Grandes villes enregistrées comme « villes-régions » (Berlin, Munich, Vienne, Londres, Zagreb, New York…) :
+# elles n'ont pas de commune au niveau {LEVEL}. On les ajoute quand une limite de niveau 4 à {LEVEL}-1
+# porte le nom d'une ville (nœud place=city/town situé dedans) et n'est presque pas couverte par des communes.
+from shapely.geometry import Point
+import unicodedata
+def _key(t):
+    t = unicodedata.normalize('NFD', (t or '').lower()); t = ''.join(ch for ch in t if unicodedata.category(ch) != 'Mn')
+    return ' '.join(w for w in re.split(r"[\s\-'’,]+", t) if w and w not in VILLE_MOTS)
+VILLE_MOTS = {'greater', 'grad', 'stadt', 'city', 'of', 'municipio', 'municipality', 'de', 'del', 'town', 'kreisfreie', 'landeshauptstadt', 'statutarstadt', 'citta', 'di'}
+run('osmium', 'tags-filter', '--overwrite', '-o', TMP + '/villes.pbf', PBF, 'n/place=city,town')
+run('osmium', 'export', '--overwrite', '-f', 'geojsonseq', '-a', 'type,id', '-o', TMP + '/villes.geojsonseq', TMP + '/villes.pbf')
+villes = []
+for f in features(TMP + '/villes.geojsonseq'):
+    p = f['properties']
+    if f['geometry']['type'] != 'Point': continue
+    keys = {_key(p.get(k)) for k in ('name', 'name:fr', 'name:en', 'official_name') if p.get(k)} - {''}
+    if not keys: continue
+    try: pop = int(re.sub(r'\D', '', p.get('population', '') or '0') or 0)
+    except ValueError: pop = 0
+    villes.append({'pt': Point(f['geometry']['coordinates']), 'keys': keys, 'name': nom(p), 'pop': pop})
+par_nom = defaultdict(list)
+for v in villes:
+    for k in v['keys']: par_nom[k].append(v)
+ctree = STRtree([c['geom'] for c in communes])
+ajout = []
+for r in sorted((r for r in regions if 4 <= r['al'] < lvl), key=lambda r: -r['al']):
+    rk = _key(r['name'])
+    if not rk: continue
+    v = next((v for v in par_nom.get(rk, ()) if r['geom'].contains(v['pt'])), None)
+    if not v: continue
+    g = r['raw']; area = g.area or 1
+    couvert = sum(g.intersection(communes[int(i)]['geom']).area for i in ctree.query(g)) / area
+    if couvert > 0.5: continue                              # déjà découpée en communes (cas normal)
+    if any(a['geom'].intersection(g).area > 0.5 * min(area, a['geom'].area) for a in ajout): continue   # pas deux fois la même ville
+    c = v['pt'] if g.contains(v['pt']) else g.representative_point()
+    ajout.append({'id': 'r' + str(r['id']), 'name': v['name'] or r['name'], 'geom': g, 'lat': round(c.y, 5), 'lon': round(c.x, 5),
+                  'pop': v['pop'], 'al': r['al']})
+print(len(ajout), 'grandes villes ajoutées :', ', '.join(a['name'] for a in sorted(ajout, key=lambda a: -a['pop'])[:40]), flush=True)
+communes += ajout
+del villes, par_nom, ctree
 
 # région affichée : la plus fine des limites (niveaux 4 à {LEVEL}-1) qui contient la commune
 rtree = STRtree([r['raw'] for r in regions]) if regions else None
@@ -143,7 +184,7 @@ for c in communes:
         pt = Point(c['lon'], c['lat'])
         for i in rtree.query(pt):
             r = regions[int(i)]
-            if r['al'] >= 4 and r['geom'].contains(pt) and (best is None or r['al'] > best['al']): best = r
+            if r['al'] >= 4 and r['al'] < c.get('al', lvl) and r['geom'].contains(pt) and (best is None or r['al'] > best['al']): best = r
     c['region'] = best['name'] if best else ''
 del regions, rtree
 
@@ -172,8 +213,11 @@ for f in features(TMP + '/poi.geojsonseq'):
     if m: wiki = f'https://{m.group(1)}.wikipedia.org/wiki/{quote(m.group(2).replace(" ", "_"))}'
     big = key[0] != 'n' and kind in ('parc', 'chateau', 'ruines', 'attraction', 'sport', 'gare')
     rec = {'id': key, 'n': name, 'k': kind, 'r': RAR[r], 'lat': round(pt.y, 6), 'lon': round(pt.x, 6), 'rad': KINDS[kind][1] + (60 if big else 0), 'w': wiki, 'named': bool(t.get('name'))}
+    best = None
     for i in tree.query(pt):
-        if prepared[int(i)].contains(pt): per[int(i)].append(rec); total += 1; break
+        i = int(i)
+        if prepared[i].contains(pt) and (best is None or communes[i].get('al', lvl) > communes[best].get('al', lvl)): best = i
+    if best is not None: per[best].append(rec); total += 1
 print(total, 'lieux rattachés', flush=True)
 
 # 3) Fichiers
