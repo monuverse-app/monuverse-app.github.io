@@ -53,3 +53,8 @@ jobs:
           note "6 état final (attendu 300 points, 5 lieux)" "$c $(head -c 200 /tmp/r)"
           c=$(code -X DELETE "$U/rest/v1/joueurs?id=eq.$ID" -H "apikey: $K" -H "$A")
           note "7 suppression du joueur de test" "$c"
+      - name: Vérifier qu'il ne reste aucun joueur de test
+        run: |
+          r=$(curl -s "https://lzdbudsjzizsmsynfraa.supabase.co/rest/v1/joueurs?select=pseudo,points&pseudo=eq.Test%20Robot" -H "apikey: sb_publishable_k9FMA3NPiaLj_ePdxPxRrw_QjRDEIFY")
+          echo "::notice title=8 joueurs de test restants (attendu [])::$r"
+          [ "$r" = "[]" ]
