@@ -72,9 +72,17 @@ jobs:
         if: steps.budget.outputs.skip != '1'
         run: |
           sudo mkdir -p /mnt/osm && sudo chown "$USER" /mnt/osm
-          curl -fsSL --retry 3 -o /mnt/osm/pays.osm.pbf "https://download.geofabrik.de/${{ matrix.geo }}-latest.osm.pbf"
-          curl -fsSL --retry 3 -o /mnt/osm/pays.md5 "https://download.geofabrik.de/${{ matrix.geo }}-latest.osm.pbf.md5"
-          echo "$(cut -d' ' -f1 /mnt/osm/pays.md5)  /mnt/osm/pays.osm.pbf" | md5sum -c -   # carte intacte, sinon on s'arrête
+          # Geofabrik d'abord, puis son miroir openstreetmap.fr ; la carte doit correspondre à son empreinte MD5
+          ok=0
+          for base in "https://download.geofabrik.de" "https://download.openstreetmap.fr/extracts"; do
+            for i in 1 2 3; do
+              if curl -fsSL --retry 5 --retry-all-errors --retry-delay 30 -o /mnt/osm/pays.md5 "$base/${{ matrix.geo }}-latest.osm.pbf.md5" \
+                 && curl -fSL --retry 5 --retry-all-errors --retry-delay 30 -o /mnt/osm/pays.osm.pbf "$base/${{ matrix.geo }}-latest.osm.pbf" \
+                 && echo "$(cut -d' ' -f1 /mnt/osm/pays.md5)  /mnt/osm/pays.osm.pbf" | md5sum -c -; then ok=1; break 2; fi
+              echo "Échec ($base, essai $i), nouvel essai dans 2 minutes"; sleep 120
+            done
+          done
+          [ "$ok" = 1 ] || { echo "::error::Carte introuvable pour ${{ matrix.nom }}"; exit 1; }
           ls -lh /mnt/osm
 
       - name: Construire
