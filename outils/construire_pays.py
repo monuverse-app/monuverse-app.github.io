@@ -130,7 +130,7 @@ for f in features(TMP + '/bnd.geojsonseq'):
         except ValueError: pop = 0
         communes.append({'id': rid, 'name': name, 'geom': g, 'lat': round(c.y, 5), 'lon': round(c.x, 5), 'pop': pop})
     else:
-        regions.append({'name': name, 'al': al, 'geom': prep(g), 'raw': g, 'id': p.get('@id')})
+        regions.append({'name': name, 'al': al, 'geom': prep(g), 'raw': g, 'id': p.get('@id'), 'names': [p.get(k) for k in ('name', 'name:fr', 'name:en', 'official_name', 'short_name') if p.get(k)]})
 print(len(communes), 'communes,', len(regions), 'régions', flush=True)
 if len(communes) < 50: sys.exit(f'{CC} : trop peu de communes au niveau {LEVEL}, vérifie le niveau administratif.')
 
@@ -142,7 +142,8 @@ import unicodedata
 def _key(t):
     t = unicodedata.normalize('NFD', (t or '').lower()); t = ''.join(ch for ch in t if unicodedata.category(ch) != 'Mn')
     return ' '.join(w for w in re.split(r"[\s\-'’,]+", t) if w and w not in VILLE_MOTS)
-VILLE_MOTS = {'greater', 'grad', 'stadt', 'city', 'of', 'municipio', 'municipality', 'de', 'del', 'town', 'kreisfreie', 'landeshauptstadt', 'statutarstadt', 'citta', 'di'}
+VILLE_MOTS = {'greater', 'grad', 'stadt', 'city', 'of', 'municipio', 'municipality', 'de', 'del', 'town', 'kreisfreie', 'landeshauptstadt', 'statutarstadt',
+              'citta', 'di', 'ville', 'la', 'le', 'the', 'metropolitan', 'metropolitana', 'capital', 'capitale'}
 run('osmium', 'tags-filter', '--overwrite', '-o', TMP + '/villes.pbf', PBF, 'n/place=city,town')
 run('osmium', 'export', '--overwrite', '-f', 'geojsonseq', '-a', 'type,id', '-o', TMP + '/villes.geojsonseq', TMP + '/villes.pbf')
 villes = []
@@ -158,12 +159,27 @@ par_nom = defaultdict(list)
 for v in villes:
     for k in v['keys']: par_nom[k].append(v)
 ctree = STRtree([c['geom'] for c in communes])
+deja = {_key(c['name']) for c in communes}
+def _match(r):
+    # la ville dont le nom est celui de la limite (« Grad Zagreb » ↔ « Zagreb »), ou contenu dedans (« Ville de Zagreb »)
+    rks = {_key(n) for n in r['names']} - {''}
+    for rk in rks:
+        v = next((v for v in par_nom.get(rk, ()) if r['geom'].contains(v['pt'])), None)
+        if v: return v, True
+    for v in (v for i in vtree.query(r['raw']) for v in [villes[int(i)]]):
+        if v['pop'] < 20000 or not r['geom'].contains(v['pt']): continue
+        if any(f' {k} ' in f' {rk} ' for k in v['keys'] for rk in rks if len(k) > 3) and not (v['keys'] & deja): return v, False
+    return None, False
+vtree = STRtree([v['pt'] for v in villes]) if villes else None
 ajout, trace = [], []
-for r in sorted((r for r in regions if 4 <= r['al'] < lvl), key=lambda r: -r['al']):
-    rk = _key(r['name'])
-    if not rk: continue
-    v = next((v for v in par_nom.get(rk, ()) if r['geom'].contains(v['pt'])), None)
-    if not v: continue
+cands = []
+for r in (r for r in regions if 4 <= r['al'] < lvl):
+    if vtree is None: break
+    v, exact = _match(r)
+    if v: cands.append((not exact, -r['al'], r, v))
+# d'abord les noms identiques (« New York » avant « New York County »), puis du plus fin au plus large
+for _, _, r, v in sorted(cands, key=lambda t: (t[0], t[1])):
+    if v['keys'] & deja: trace.append((v['pop'], f"{r['name']} : existe déjà")); continue
     g = r['raw']; area = g.area or 1
     couvert = sum(g.intersection(communes[int(i)]['geom']).area for i in ctree.query(g)) / area
     trace.append((v['pop'], f"{r['name']} (niv. {r['al']}, couvert {couvert:.0%})"))
@@ -178,7 +194,7 @@ print(f"::notice title={CC} villes-régions::{len(villes)} villes, {sum(1 for r 
       f"ajoutées ({len(ajout)}) : {', '.join(a['name'] for a in sorted(ajout, key=lambda a: -a['pop'])[:25])} ; "
       f"candidates : {' | '.join(t for _, t in sorted(trace, reverse=True)[:15])}", flush=True)
 communes += ajout
-del villes, par_nom, ctree
+del villes, par_nom, ctree, vtree
 
 # région affichée : la plus fine des limites (niveaux 4 à {LEVEL}-1) qui contient la commune
 rtree = STRtree([r['raw'] for r in regions]) if regions else None
