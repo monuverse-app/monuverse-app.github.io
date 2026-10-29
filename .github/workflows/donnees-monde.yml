@@ -79,6 +79,8 @@ jobs:
               if curl -fsSL --retry 5 --retry-all-errors --retry-delay 30 -o /mnt/osm/pays.md5 "$base/${{ matrix.geo }}-latest.osm.pbf.md5" \
                  && curl -fSL --retry 5 --retry-all-errors --retry-delay 30 -o /mnt/osm/pays.osm.pbf "$base/${{ matrix.geo }}-latest.osm.pbf" \
                  && echo "$(cut -d' ' -f1 /mnt/osm/pays.md5)  /mnt/osm/pays.osm.pbf" | md5sum -c -; then ok=1; break 2; fi
+              code=$(curl -sIL -o /dev/null -w '%{http_code} %{size_download}' "$base/${{ matrix.geo }}-latest.osm.pbf" || true)
+              echo "::warning title=Téléchargement ${{ matrix.cc }}::$base essai $i : réponse $code ; fichier $(stat -c %s /mnt/osm/pays.osm.pbf 2>/dev/null || echo 0) octets ; place libre $(df -h /mnt | tail -1 | awk '{print $4}')"
               echo "Échec ($base, essai $i), nouvel essai dans 2 minutes"; sleep 120
             done
           done
