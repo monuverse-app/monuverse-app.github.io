@@ -440,7 +440,8 @@ const KEY = 'monuverse-v1';
 const DATA_VER = 2;
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayBefore = s => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-let S = { v: 1, current: null, cities: {}, pseudo: '', streak: { n: 0, last: '' }, xp: 0, dailyBonus: {}, theme: 'auto' };
+let S = { v: 1, current: null, cities: {}, pseudo: '', streak: { n: 0, last: '' }, xp: 0, dailyBonus: {}, theme: 'auto', pending: [], week: null, badges: [], albums: {} };
+let albumsFresh = true;   // première ouverture depuis l'arrivée des albums : ceux déjà finis sont cochés sans bonus
 function load() {
   try {
     const d = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -456,6 +457,11 @@ function load() {
     S.theme = ['auto', 'light', 'dark'].includes(d.theme) ? d.theme : 'auto';
     S.nav = ['plans', 'google', 'waze'].includes(d.nav) ? d.nav : undefined;
     S.lang = ['auto', 'fr', 'en'].includes(d.lang) ? d.lang : 'auto';
+    S.pending = Array.isArray(d.pending) ? d.pending.filter(x => x && /^pd\d{10,14}$/.test(x.id) && num(x.lat, -90, 90) && num(x.lon, -180, 180) && num(x.acc, 0, 5000) && num(x.t, 1.6e12, 4e12))
+      .map(x => ({ id: x.id, lat: x.lat, lon: x.lon, acc: x.acc, t: x.t })).slice(-20) : [];
+    S.week = cleanWeek(d.week);
+    S.badges = Array.isArray(d.badges) ? d.badges.filter(b => typeof b === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b)).slice(-200) : [];
+    if (d.albums && typeof d.albums === 'object') { albumsFresh = false; S.albums = Object.fromEntries(Object.entries(d.albums).filter(([k, v]) => /^[\w:.\-]{1,140}$/.test(k) && num(v, 0, 4e12)).slice(0, 2000)); }
   } catch (e) {}
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast(L("Ton téléphone n'a plus de place pour sauvegarder.", 'Your phone is out of storage space.'), true); } }
@@ -492,6 +498,8 @@ const PhotoDB = (() => {
   return {
     put: (k, blob) => { delete urls[k]; return tx('readwrite', s => s.put(blob, k)); },
     url: async k => { if (k in urls) return urls[k]; try { const b = await tx('readonly', s => s.get(k)); urls[k] = b ? URL.createObjectURL(b) : null; } catch (e) { urls[k] = null; } return urls[k]; },
+    get: k => tx('readonly', s => s.get(k)),
+    del: k => { delete urls[k]; return tx('readwrite', s => s.delete(k)); },
     clear: () => tx('readwrite', s => s.clear())
   };
 })();
@@ -661,6 +669,7 @@ function renderVille() {
         <b>${doneToday ? L(`${nDays(streakNow())} de suite. Reviens demain !`, `${nDays(streakNow())} in a row. Come back tomorrow!`) : daily ? L(`Débloque « ${esc(pname(daily))} » : XP doublée`, `Unlock “${esc(pname(daily))}”: double XP`) : L('Débloque un lieu aujourd\'hui', 'Unlock a place today')}</b>
         <span>${doneToday ? (daily ? L('Demain, un nouveau lieu du jour.', 'Tomorrow, a new place of the day.') : '') : L(`Un lieu par jour garde ta série${streakNow() ? ` de ${nDays(streakNow())}` : ''}.`, `One place a day keeps your${streakNow() ? ` ${nDays(streakNow())}` : ''} streak alive.`)}</span></div>
       ${!doneToday && daily ? `<button class="go" data-p="${daily.id}">${L('Voir', 'View')}</button>` : ''}</div>
+    ${weekHTML()}
     <div class="share-row"><button class="btn gold" id="v-story">${L('Partager ma ville', 'Share my city')}</button><button class="btn ghost" id="v-explore">${L('Explorer', 'Explore')}</button></div>
     <div class="sec"><h3>${L('Les lieux de', 'Places in')} ${esc(c.name)}</h3><span>${here ? L('du plus proche au plus loin', 'nearest first') : L('active le GPS pour les distances', 'turn on GPS to see distances')}</span></div>
     <div class="chips" role="group" aria-label="Filtrer">
@@ -674,6 +683,7 @@ function renderVille() {
   if ($('#v-more')) $('#v-more').onclick = () => { listMax += 40; renderVille(); };
   $('#v-story').onclick = shareStory;
   $('#v-explore').onclick = () => go('scan');
+  $$('#s-ville [data-wk]').forEach(b => b.onclick = () => { filter = b.dataset.wk; listMax = 40; renderVille(); $('#s-ville .chips').scrollIntoView({ behavior: calm() ? 'auto' : 'smooth', block: 'start' }); });
   fillPhotos($('#s-ville'));
 }
 
@@ -728,12 +738,14 @@ async function openPlace(id) {
 }
 
 /* ---------- Débloquer : GPS obligatoire, photo souvenir facultative ---------- */
-async function unlock(p, gift = false) {
-  const c = city();
-  if (got(c, p)) return;
-  if (!gift && !(fresh() && inRange(p))) { toast(L(`Rapproche-toi de « ${pname(p)} » pour le débloquer.`, `Get closer to “${pname(p)}” to unlock it.`), true); return; }
+async function unlock(p, gift = false, o = {}) {
+  const c = o.cid ? S.cities[o.cid] : city();
+  if (!c || got(c, p)) return;
+  if (!gift && !o.verified && !(fresh() && inRange(p))) { toast(L(`Rapproche-toi de « ${pname(p)} » pour le débloquer.`, `Get closer to “${pname(p)}” to unlock it.`), true); return; }
   let photo = null;
-  if (!gift) {
+  const at = o.t || Date.now(), day = dayKey(at), late = day !== today();
+  if (o.photo) { try { await PhotoDB.put(p.id, o.photo); photo = true; } catch (e) {} }
+  else if (!gift && !o.verified) {
     const s = sheet(`<div class="tag">${L('Tu y es !', "You're here!")}</div><h3>${esc(pname(p))}</h3><p>${L("Prends une photo souvenir : elle deviendra l'image de ta carte.", 'Take a souvenir photo: it will become the picture on your card.')}</p>
       <button class="btn gold" id="u-photo">${L('Prendre la photo', 'Take the photo')}</button><button class="btn ghost" id="u-skip">${L('Débloquer sans photo', 'Unlock without a photo')}</button>`);
     photo = await new Promise(res => {
@@ -743,31 +755,289 @@ async function unlock(p, gift = false) {
     s.remove();
     if (photo) { try { await PhotoDB.put(p.id, await shrink(photo)); } catch (e) { photo = null; } }
   }
-  const daily = !gift && dailyPlace(c) === p && !S.dailyBonus[today()];
+  const daily = !gift && !late && dailyPlace(c) === p && !S.dailyBonus[today()];
   let xp = RAR[p.r][1] * (daily ? 2 : 1);
-  const lv0 = level(), had = scannedToday();
-  c.scanned[p.id] = { t: Date.now(), gift: gift || undefined, photo: !!photo || undefined };
+  const lv0 = level(), had = scannedToday(), streak0 = streakNow();
+  c.scanned[p.id] = { t: at, gift: gift || undefined, photo: !!photo || undefined };
   if (daily) S.dailyBonus = { [today()]: true };
   if (!gift) {
-    if (!had) { S.streak = { n: S.streak.last === dayBefore(today()) ? S.streak.n + 1 : 1, last: today() }; }
+    if (late) recomputeStreak();           // photo prise un autre jour : la série compte ce jour-là
+    else if (!had) { S.streak = { n: S.streak.last === dayBefore(today()) ? S.streak.n + 1 : 1, last: today() }; }
   }
   const p0 = pct(c);
   const extra = [];
   if (p0 >= 50 && Math.round(100 * (nGot(c) - 1) / c.places.length) < 50) { xp += 100; extra.push(L('Moitié de la ville : +100 XP', 'Half the city: +100 XP')); }
   if (p0 === 100) { xp += 300; extra.push(L('Ville complétée : +300 XP', 'City completed: +300 XP')); }
-  S.xp += xp; save(); LB.sync();
+  S.xp += xp;
+  const rw = claimRewards(); xp += rw.xp; extra.push(...rw.out);
+  save(); LB.sync();
   buzz([30, 40, 60]);
   const url = await PhotoDB.url(p.id);
   const burst = calm() ? '' : `<div class="burst" aria-hidden="true">${Array.from({ length: 22 }, (_, k) => `<i style="--a:${k * 360 / 22}deg;--r:${110 + (k * 37) % 70}px;--c:${['#F5B841', '#4FE0CF', '#B07CF2', '#FFE2A0'][k % 4]}"></i>`).join('')}</div>`;
-  sheet(`<div class="tag">${gift ? L('Cadeau de bienvenue', 'Welcome gift') : L('Nouveau lieu débloqué', 'New place unlocked')}</div>${burst}
+  const when = new Date(at).toLocaleDateString(LOC(), { day: 'numeric', month: 'long' });
+  sheet(`<div class="tag">${gift ? L('Cadeau de bienvenue', 'Welcome gift') : o.verified ? L(`Ta photo du ${when} · lieu débloqué`, `Your photo from ${when} · place unlocked`) : L('Nouveau lieu débloqué', 'New place unlocked')}</div>${burst}
     ${cardHTML(c, p, url, true)}
-    <div class="rewards"><span class="hi">+${xp} XP</span>${daily ? `<span>${L('Lieu du jour ×2', 'Place of the day ×2')}</span>` : ''}${!gift && !had ? `<span>${L('Série', 'Streak')} : ${nDays(S.streak.n)}</span>` : ''}${level() > lv0 ? `<span class="hi">${L('Niveau', 'Level')} ${level()} !</span>` : ''}${extra.map(e => `<span class="hi">${e}</span>`).join('')}</div>
+    <div class="rewards"><span class="hi">+${xp} XP</span>${daily ? `<span>${L('Lieu du jour ×2', 'Place of the day ×2')}</span>` : ''}${!gift && (late ? streakNow() > streak0 : !had) ? `<span>${L('Série : ', 'Streak: ')}${nDays(streakNow())}</span>` : ''}${level() > lv0 ? `<span class="hi">${L(`Niveau ${level()} !`, `Level ${level()}!`)}</span>` : ''}${extra.map(e => `<span class="hi">${e}</span>`).join('')}</div>
     <p>${L(`${nPl(nGot(c))} sur ${c.places.length} à ${esc(c.name)}`, `${nGot(c)} of ${nPl(c.places.length)} in ${esc(c.name)}`)} · ${p0}${L(' %', '%')}</p>
-    <div class="row2"><button class="btn ghost" id="r-share">${L('Partager', 'Share')}</button><button class="btn gold" data-close>${L('Continuer', 'Continue')}</button></div>`, refresh);
+    <div class="row2"><button class="btn ghost" id="r-share">${L('Partager', 'Share')}</button><button class="btn gold" data-close>${L('Continuer', 'Continue')}</button></div>`, () => { refresh(); if (o.after) o.after(); });
   $('#r-share').onclick = shareStory;
   refresh();
 }
 function refresh() { header(); ({ ville: renderVille, scan: renderScan, rank: renderRank, globe: renderGlobe, moi: renderMoi })[tab](); }
+
+/* ---------- Défis de la semaine, albums et photos en attente ---------- */
+const KPL = {
+  mairie: ['mairies', 'town halls'], cathedrale: ['cathédrales', 'cathedrals'], culte: ['lieux de culte', 'places of worship'],
+  fontaine: ['fontaines', 'fountains'], statue: ['statues', 'statues'], oeuvre: ["œuvres d'art", 'artworks'], fresque: ['fresques', 'murals'],
+  aux_morts: ['monuments aux morts', 'war memorials'], memorial: ['mémoriaux', 'memorials'], plaque: ['plaques commémoratives', 'memorial plaques'],
+  monument: ['monuments', 'monuments'], musee: ['musées', 'museums'], chateau: ['châteaux', 'castles'], ruines: ['vestiges', 'ruins'],
+  porte: ['portes de ville', 'city gates'], croix: ['calvaires', 'wayside crosses'], phare: ['phares', 'lighthouses'], moulin: ['moulins', 'mills'],
+  chateau_eau: ["châteaux d'eau", 'water towers'], belvedere: ['points de vue', 'viewpoints'], attraction: ['sites à voir', 'sights'],
+  parc: ['parcs', 'parks'], patrimoine: ['lieux de patrimoine', 'heritage sites'], bibliotheque: ['bibliothèques', 'libraries'],
+  culture: ['lieux de culture', 'cultural venues'], gare: ['gares', 'stations'], marche: ['marchés', 'markets'], kiosque: ['kiosques', 'bandstands'],
+  horloge: ['horloges', 'clocks'], jeux: ['aires de jeux', 'playgrounds'], sport: ['équipements sportifs', 'sports facilities'], salle: ['lieux de vie', 'community places']
+};
+const kindN = (k, n) => n > 1 ? KPL[k][LANG === 'en' ? 1 : 0] : kindLabel(k).toLowerCase();
+const capF = t => t.charAt(0).toUpperCase() + t.slice(1);
+const pad2 = n => String(n).padStart(2, '0');
+const dayKey = t => { const d = new Date(t); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+const hsh = t => { let h = 0; for (const ch of t) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
+function weekStart(t = Date.now()) { const d = new Date(t); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return d.getTime(); }
+function weekEnd(t = Date.now()) { const d = new Date(weekStart(t)); d.setDate(d.getDate() + 7); return d.getTime(); }
+function weekNum(t = Date.now()) {
+  const d = new Date(t); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+  const w1 = new Date(d.getFullYear(), 0, 4);
+  return 1 + Math.round(((d - w1) / 864e5 - 3 + (w1.getDay() + 6) % 7) / 7);
+}
+const WK_TYPES = ['kind', 'rare', 'any', 'city', 'days'];
+function cleanWeek(w) {
+  if (!w || typeof w !== 'object' || !/^\d{4}-\d{2}-\d{2}$/.test(w.key || '') || !Array.isArray(w.list) || typeof w.cid !== 'string' || w.cid.length > 80) return null;
+  const list = w.list.slice(0, 3).filter(c => c && WK_TYPES.includes(c.type) && num(c.n, 1, 10) && num(c.xp, 0, 500) && (c.type !== 'kind' || KINDS[c.k]))
+    .map(c => ({ type: c.type, k: c.type === 'kind' ? c.k : undefined, n: Math.floor(c.n), xp: Math.floor(c.xp) }));
+  if (!list.length) return null;
+  const done = Array.isArray(w.done) ? [...new Set(w.done.filter(i => Number.isInteger(i) && i >= 0 && i < list.length))] : [];
+  return { key: w.key, cid: w.cid, list, done, badge: w.badge === true };
+}
+/* Lieux débloqués (hors cadeau de bienvenue) entre deux dates, dans toutes les villes */
+function scansBetween(t0, t1) {
+  const out = [];
+  for (const c of Object.values(S.cities)) {
+    const by = new Map(c.places.map(p => [p.id, p]));
+    for (const [id, x] of Object.entries(c.scanned)) if (!x.gift && x.t >= t0 && x.t < t1 && by.has(id)) out.push({ c, p: by.get(id), t: x.t });
+  }
+  return out;
+}
+/* Les 3 défis de la semaine : tirés au sort à partir de la ville (mêmes pour tous ses joueurs), adaptés si tu as déjà tout un type */
+function weekChallenges() {
+  const wk = dayKey(weekStart());
+  if (S.week && S.week.key === wk) return S.week;
+  const c = city(); if (!c) return null;
+  const h = hsh(wk + c.id);
+  const all = {}, left = {};
+  for (const p of c.places) { all[p.k] = (all[p.k] || 0) + 1; if (!got(c, p)) left[p.k] = (left[p.k] || 0) + 1; }
+  const kinds = Object.keys(all).filter(k => all[k] >= 2 && k !== 'mairie').sort();
+  const order = kinds.map((_, i) => kinds[(i + h) % kinds.length]);
+  const k = order.find(x => left[x] >= 2) || order.find(x => left[x] >= 1);
+  const nLeft = c.places.filter(p => !got(c, p)).length;
+  const list = [];
+  list.push(k ? { type: 'kind', k, n: Math.min(2, left[k]), xp: 50 } : { type: 'city', n: 1, xp: 100 });
+  list.push(c.places.some(p => !got(c, p) && p.r !== 'commune') ? { type: 'rare', n: 1, xp: 100 } : { type: 'any', n: nLeft ? Math.min(3, nLeft) : 3, xp: 100 });
+  list.push({ type: 'days', n: 3, xp: 150 });
+  S.week = { key: wk, cid: c.id, list, done: [], badge: false };
+  save();
+  return S.week;
+}
+function weekProgress(w) {
+  const sc = scansBetween(weekStart(), weekEnd());
+  return w.list.map(ch => {
+    const v = ch.type === 'kind' ? sc.filter(x => x.p.k === ch.k).length
+      : ch.type === 'rare' ? sc.filter(x => x.p.r !== 'commune').length
+      : ch.type === 'city' ? sc.filter(x => x.c.id !== w.cid).length
+      : ch.type === 'days' ? new Set(sc.map(x => dayKey(x.t))).size
+      : sc.length;
+    return Math.min(v, ch.n);
+  });
+}
+function chLabel(ch) {
+  if (ch.type === 'kind') return L(`Débloque ${ch.n} ${kindN(ch.k, ch.n)}`, `Unlock ${ch.n} ${kindN(ch.k, ch.n)}`);
+  if (ch.type === 'rare') return L('Débloque 1 lieu rare ou mieux', 'Unlock 1 rare place or better');
+  if (ch.type === 'city') return L('Débloque 1 lieu dans une autre ville', 'Unlock 1 place in another city');
+  if (ch.type === 'days') return L(`Débloque des lieux ${ch.n} jours différents`, `Unlock places on ${ch.n} different days`);
+  return L(`Débloque ${nPl(ch.n)}`, `Unlock ${nPl(ch.n)}`);
+}
+function weekHTML() {
+  const w = weekChallenges(); if (!w) return '';
+  const pr = weekProgress(w), nd = pr.filter((v, i) => v >= w.list[i].n).length;
+  const daysLeft = Math.max(1, Math.round((weekEnd() - Date.now()) / 864e5));
+  return `<div class="week ${w.badge ? 'done' : ''}">
+    <div class="wk-h"><span class="eyebrow">${L('Défis de la semaine', 'Weekly challenges')}</span><span>${nd}/${w.list.length} · ${daysLeft <= 1 ? L('dernier jour', 'last day') : L(`encore ${daysLeft} jours`, `${daysLeft} days left`)}</span></div>
+    ${w.list.map((ch, i) => { const ok = pr[i] >= ch.n; return `<div class="wk-r ${ok ? 'ok' : ''}" ${ch.type === 'kind' && !ok ? `data-wk="${ch.k}" role="button" tabindex="0"` : ''}>
+      <span class="ck" aria-hidden="true">${ok ? '✓' : ''}</span>
+      <div><b>${chLabel(ch)}</b><div class="bar sea"><i style="width:${Math.round(100 * pr[i] / ch.n)}%"></i></div></div>
+      <span class="wx">${ok ? `${pr[i]}/${ch.n}` : `+${ch.xp} XP`}</span></div>`; }).join('')}
+    <p class="wk-f">${w.badge ? L(`Badge « Semaine ${weekNum(weekStart())} » gagné ! Nouveaux défis lundi.`, `“Week ${weekNum(weekStart())}” badge earned! New challenges on Monday.`) : L(`Les ${w.list.length} réussis : badge « Semaine ${weekNum(weekStart())} » et +100 XP`, `All ${w.list.length} done: “Week ${weekNum(weekStart())}” badge and +100 XP`)}</p>
+  </div>`;
+}
+/* Albums : chaque famille de lieux d'une ville (3 lieux ou plus), et de grands albums sur toutes tes villes */
+function cityAlbums(c) {
+  const byK = {};
+  for (const p of c.places) (byK[p.k] = byK[p.k] || []).push(p);
+  return Object.entries(byK).filter(([, ps]) => ps.length >= 3).map(([k, ps]) => {
+    const n = ps.filter(p => got(c, p)).length;
+    return { id: `c:${c.id}:${k}`, k, cid: c.id, title: capF(KPL[k][LANG === 'en' ? 1 : 0]), sub: c.name, n, N: ps.length, done: n === ps.length, xp: Math.min(200, 20 * ps.length) };
+  });
+}
+function globalAlbums() {
+  const cs = Object.values(S.cities);
+  let places = 0, rare = 0, cath = 0, mus = 0;
+  for (const c of cs) for (const p of c.places) if (got(c, p)) { places++; if (p.r !== 'commune') rare++; if (p.k === 'cathedrale') cath++; if (p.k === 'musee') mus++; }
+  const cities = cs.filter(c => nGot(c)).length, ccs = new Set(cs.filter(c => nGot(c)).map(c => c.cc)).size;
+  const G = [
+    ['g:places10', 10, places, 100, L('10 lieux', '10 places'), L('où tu veux', 'anywhere')],
+    ['g:places50', 50, places, 200, L('50 lieux', '50 places'), L('où tu veux', 'anywhere')],
+    ['g:places200', 200, places, 300, L('200 lieux', '200 places'), L('où tu veux', 'anywhere')],
+    ['g:rare10', 10, rare, 150, L('10 lieux rares', '10 rare places'), L('rares, épiques ou légendaires', 'rare, epic or legendary')],
+    ['g:cities3', 3, cities, 150, L('3 villes', '3 cities'), L('au moins un lieu dans chacune', 'at least one place in each')],
+    ['g:cities10', 10, cities, 300, L('10 villes', '10 cities'), L('au moins un lieu dans chacune', 'at least one place in each')],
+    ['g:countries3', 3, ccs, 300, L('3 pays', '3 countries'), L('remplis ton globe', 'fill your globe')],
+    ['g:cath5', 5, cath, 200, L('5 cathédrales', '5 cathedrals'), L('dans le monde entier', 'anywhere in the world')],
+    ['g:museum5', 5, mus, 150, L('5 musées', '5 museums'), L('dans le monde entier', 'anywhere in the world')]
+  ];
+  return G.map(([id, N, v, xp, title, sub]) => ({ id, N, n: Math.min(v, N), done: v >= N, xp, title, sub, k: null }));
+}
+const allAlbums = () => Object.values(S.cities).flatMap(cityAlbums).concat(globalAlbums());
+/* Bonus gagnés : défis de la semaine, badge, albums complétés. Chaque bonus n'est donné qu'une fois. */
+function claimRewards() {
+  const out = []; let xp = 0;
+  const w = weekChallenges();
+  if (w) {
+    const pr = weekProgress(w);
+    w.list.forEach((ch, i) => { if (pr[i] >= ch.n && !w.done.includes(i)) { w.done.push(i); xp += ch.xp; out.push(L(`Défi réussi : +${ch.xp} XP`, `Challenge done: +${ch.xp} XP`)); } });
+    if (!w.badge && w.done.length === w.list.length) {
+      w.badge = true; S.badges = S.badges.filter(b => b !== w.key).concat(w.key).slice(-200); xp += 100;
+      out.push(L(`Badge « Semaine ${weekNum(weekStart())} » : +100 XP`, `“Week ${weekNum(weekStart())}” badge: +100 XP`));
+    }
+  }
+  for (const a of allAlbums()) if (a.done && !S.albums[a.id]) {
+    S.albums[a.id] = Date.now(); xp += a.xp;
+    out.push(L(`Album « ${a.title}${a.k ? ` · ${a.sub}` : ''} » complet : +${a.xp} XP`, `“${a.title}${a.k ? ` · ${a.sub}` : ''}” album complete: +${a.xp} XP`));
+  }
+  S.xp += xp;
+  return { xp, out };
+}
+let albumsAll = false;
+function albumsHTML() {
+  const c = city();
+  const mine = c ? cityAlbums(c) : [];
+  const g = globalAlbums();
+  const sortA = (a, b) => (a.done - b.done) || (b.n / b.N - a.n / a.N) || a.title.localeCompare(b.title);
+  const open = mine.filter(a => !a.done).sort(sortA), full = mine.filter(a => a.done);
+  // grands albums : le prochain palier de chaque famille, plus ceux déjà finis
+  const fam = {}; const gOpen = g.filter(a => !a.done && !fam[a.id.replace(/\d+$/, '')] && (fam[a.id.replace(/\d+$/, '')] = 1)); const gDone = g.filter(a => a.done);
+  const row = a => `<button class="pl al ${a.done ? 'got' : 'locked'}" ${a.k ? `data-al="${a.k}"` : 'disabled'}>
+      <span class="ic">${a.k ? shape(KINDS[a.k][1]) : shape(a.id.startsWith('g:countries') || a.id.startsWith('g:cities') ? 'sky' : 'columns')}</span>
+      <div><b>${esc(a.title)}</b><span>${esc(a.sub)}</span><div class="bar ${a.done ? '' : 'sea'}"><i style="width:${Math.round(100 * a.n / a.N)}%"></i></div></div>
+      <span class="rt"><span class="dist">${a.done ? '✓' : `${a.n}/${a.N}`}</span><span class="gem">${a.done ? L('complet', 'complete') : `+${a.xp} XP`}</span></span></button>`;
+  const show = albumsAll ? open : open.slice(0, 4);
+  const nDone = full.length + gDone.length;
+  return `<div class="sec"><h3>${L('Albums', 'Albums')}</h3><span>${L(`${nDone} complété${nDone > 1 ? 's' : ''}`, `${nDone} complete`)}</span></div>
+    ${c ? `<div class="places">${show.map(row).join('') || `<div class="empty">${L(`Pas encore d'album à ${esc(c.name)} : il faut au moins 3 lieux du même type.`, `No album in ${esc(c.name)} yet: it takes at least 3 places of the same type.`)}</div>`}</div>
+    ${!albumsAll && open.length > 4 ? `<button class="btn ghost more" id="al-more">${L(`Voir les ${open.length - 4} autres albums de ${esc(c.name)}`, `See ${open.length - 4} more albums in ${esc(c.name)}`)}</button>` : ''}` : ''}
+    <div class="places" style="margin-top:8px">${gOpen.concat(albumsAll ? full.concat(gDone) : gDone.slice(-2)).map(row).join('')}</div>`;
+}
+
+/* Photo prise sur place. Avec un lieu connu à portée : déblocage normal. Sinon (ville jamais ouverte, pas de réseau) :
+   la photo, la position et l'heure sont gardées sur le téléphone, et vérifiées dès que le réseau revient. */
+function knownAt(pos, withGot) {
+  let best = null;
+  for (const c of Object.values(S.cities)) for (const p of c.places) {
+    if (!inRange(p, pos) || (!withGot && got(c, p))) continue;
+    const d = dist(pos, p), score = (got(c, p) ? 1e6 : 0) + d;
+    if (!best || score < best.score) best = { c, p, d, score };
+  }
+  return best;
+}
+async function photoHere() {
+  const me = GPS.pos;
+  if (!me || !fresh()) { toast(L('On cherche encore ta position. Sors à découvert quelques secondes, puis réessaie.', 'Still finding your location. Step outside for a few seconds, then try again.'), true); return; }
+  if (me.acc > 100) { toast(L(`Ta position est trop imprécise (${Math.round(me.acc)} m). Sors à découvert, puis réessaie.`, `Your location is too imprecise (${Math.round(me.acc)} m). Step outside, then try again.`), true); return; }
+  const pos = { lat: me.lat, lon: me.lon, acc: me.acc, t: Date.now() };
+  const hit = knownAt(pos, false);
+  if (hit) { unlock(hit.p, false, { cid: hit.c.id }); return; }
+  const f = await askPhoto(); if (!f) return;
+  let blob; try { blob = await shrink(f); } catch (e) { toast(L("La photo n'a pas pu être enregistrée.", 'The photo could not be saved.'), true); return; }
+  const id = 'pd' + pos.t;
+  try { await PhotoDB.put('pend:' + id, blob); } catch (e) { toast(L("La photo n'a pas pu être enregistrée.", 'The photo could not be saved.'), true); return; }
+  S.pending = S.pending.concat({ id, lat: pos.lat, lon: pos.lon, acc: pos.acc, t: pos.t }).slice(-20); save();
+  if (navigator.onLine !== false) {
+    sheet(`<div class="tag">${L('Photo prise', 'Photo taken')}</div><h3>${L('On regarde quel lieu se trouve ici…', 'Checking which place is here…')}</h3><div class="spinner" style="margin:18px auto"></div>`);
+    resolvePending(true);
+  } else {
+    sheet(`<div class="tag">${L('Photo gardée', 'Photo saved')}</div><h3>${L('Pas de réseau pour le moment', 'No network right now')}</h3>
+      <p>${L("Ta photo, ta position et l'heure sont gardées sur ce téléphone. Dès que tu retrouves du réseau, Monuverse vérifie le lieu et débloque la carte, datée du jour de ta photo.", "Your photo, location and time are saved on this phone. As soon as you are back online, Monuverse checks the place and unlocks the card, dated the day of your photo.")}</p>
+      <button class="btn gold" data-close>${L('Compris', 'Got it')}</button>`);
+  }
+  refresh();
+}
+function pendingHTML() {
+  const n = S.pending.length; if (!n) return '';
+  return `<div class="note pend"><b>${L(`${n} photo${n > 1 ? 's' : ''} en attente`, `${n} photo${n > 1 ? 's' : ''} waiting`)}</b><span>${L('Elles seront vérifiées dès que tu retrouves du réseau.', 'They will be checked as soon as you are back online.')}</span>
+    ${navigator.onLine !== false ? `<button class="btn ghost small" id="pd-check">${L('Vérifier maintenant', 'Check now')}</button>` : ''}</div>`;
+}
+/* Ajoute une ville sans changer d'écran (pour vérifier une photo prise ailleurs) */
+async function addCityQuiet(c) {
+  const old = S.cities[c.id];
+  if (old && old.places.length && old.ver === DATA_VER) return old;
+  const places = tidyPlaces(await fetchPlaces(c), c.name, old ? old.scanned : {});
+  S.cities[c.id] = Object.assign({}, c, { places, scanned: old ? old.scanned : {}, fetched: Date.now(), ver: DATA_VER });
+  if (!S.current) S.current = c.id;
+  save();
+  return S.cities[c.id];
+}
+let pendBusy = false;
+async function resolvePending(manual) {
+  if (pendBusy || !S.pending.length) { if (manual && !S.pending.length) closeSheets(); return; }
+  if (navigator.onLine === false) { if (manual) toast(L('Toujours pas de réseau. On réessaiera tout seuls.', 'Still offline. We will try again automatically.'), true); return; }
+  pendBusy = true;
+  const it = S.pending[0], pos = { lat: it.lat, lon: it.lon, acc: it.acc };
+  let hit = knownAt(pos, true);
+  if (!hit) {
+    try { await addCityQuiet(await cityAt(it.lat, it.lon)); hit = knownAt(pos, true); }
+    catch (e) { pendBusy = false; if (manual) { closeSheets(); toast(L('Le réseau ne répond pas. On réessaiera tout seuls.', 'The network is not responding. We will try again automatically.'), true); } return; }
+  }
+  let blob = null; try { blob = await PhotoDB.get('pend:' + it.id); } catch (e) {}
+  S.pending = S.pending.filter(x => x.id !== it.id); save();
+  pendBusy = false;
+  const next = () => setTimeout(resolvePending, 400);
+  const when = new Date(it.t).toLocaleDateString(LOC(), { day: 'numeric', month: 'long' });
+  if (hit && !got(hit.c, hit.p)) {
+    try { await PhotoDB.del('pend:' + it.id); } catch (e) {}
+    closeSheets();
+    unlock(hit.p, false, { cid: hit.c.id, photo: blob, t: it.t, verified: true, after: next });
+    return;
+  }
+  if (hit) {
+    try { if (blob && !(await PhotoDB.url(hit.p.id))) { await PhotoDB.put(hit.p.id, blob); hit.c.scanned[hit.p.id].photo = true; save(); } await PhotoDB.del('pend:' + it.id); } catch (e) {}
+    closeSheets(); toast(L(`Ta photo du ${when} : « ${pname(hit.p)} » était déjà dans ta collection.`, `Your photo from ${when}: “${pname(hit.p)}” was already in your collection.`));
+    refresh(); next(); return;
+  }
+  const url = blob ? URL.createObjectURL(blob) : null;
+  sheet(`<div class="tag">${L(`Ta photo du ${when}`, `Your photo from ${when}`)}</div>
+    ${url ? `<div class="pend-img"><img src="${url}" alt=""></div>` : ''}
+    <h3>${L("Aucun lieu Monuverse à l'endroit de cette photo", 'No Monuverse place where this photo was taken')}</h3>
+    <p>${L("Aucune carte ne se débloque. Tu peux garder la photo sur ton téléphone. Il manque un lieu ? Ajoute-le sur OpenStreetMap : il arrivera dans Monuverse.", 'No card unlocks. You can keep the photo on your phone. A place is missing? Add it on OpenStreetMap and it will come to Monuverse.')}</p>
+    ${url ? `<a class="btn ghost" href="${url}" download="monuverse-${dayKey(it.t)}.jpg">${L('Enregistrer la photo', 'Save the photo')}</a>` : ''}
+    <button class="btn gold" data-close>OK</button>`, async () => { try { await PhotoDB.del('pend:' + it.id); } catch (e) {} if (url) URL.revokeObjectURL(url); refresh(); next(); });
+  refresh();
+}
+function recomputeStreak() {
+  const days = new Set();
+  for (const c of Object.values(S.cities)) for (const x of Object.values(c.scanned)) if (!x.gift && x.t) days.add(dayKey(x.t));
+  if (!days.size) return;
+  const last = [...days].sort().pop();
+  let n = 1, d = last; while (days.has(dayBefore(d))) { n++; d = dayBefore(d); }
+  if (last > S.streak.last || (last === S.streak.last && n > S.streak.n)) S.streak = { n, last };
+}
 
 /* ---------- Écran : Explorer (radar + lieu le plus proche) ---------- */
 let scanSub = null;
@@ -782,8 +1052,9 @@ function renderScan() {
     return;
   }
   if (!GPS.pos) {
-    el.innerHTML = `<div class="gps"><i></i><div><b>${L('Recherche de ta position…', 'Finding your location…')}</b><br><span>${L('Autorise la localisation si ton téléphone te le demande.', 'Allow location access if your phone asks.')}</span></div></div><button class="btn ghost what-btn" id="sc-what">${L("Qu'est-ce qu'il y a ici ?", "What's here?")}</button><div class="spinner" style="margin:40px auto"></div>`;
+    el.innerHTML = `<div class="gps"><i></i><div><b>${L('Recherche de ta position…', 'Finding your location…')}</b><br><span>${L('Autorise la localisation si ton téléphone te le demande.', 'Allow location access if your phone asks.')}</span></div></div><button class="btn ghost what-btn" id="sc-what">${L("Qu'est-ce qu'il y a ici ?", "What's here?")}</button>${pendingHTML()}<div class="spinner" style="margin:40px auto"></div>`;
     $('#sc-what').onclick = whatHere;
+    if ($('#pd-check')) $('#pd-check').onclick = () => resolvePending(true);
     return;
   }
   const me = GPS.pos, acc = Math.round(me.acc);
@@ -798,7 +1069,8 @@ function renderScan() {
   const ir = near && inRange(near.p, me);
   el.innerHTML = `
     <div class="gps ${acc <= 30 ? 'ok' : acc <= 100 ? 'warn' : 'bad'}"><i></i><div><b>${acc <= 100 ? L('Position trouvée', 'Location found') : L('Position imprécise', 'Imprecise location')}</b> <span>· ${L('précision', 'accuracy')} ${acc} m${acc > 100 ? L(' : sors à découvert', ': move into the open') : ''}</span></div></div>
-    <button class="btn ghost what-btn" id="sc-what">${L("Qu'est-ce qu'il y a ici ?", "What's here?")}</button>
+    <div class="row2 what-row"><button class="btn sea" id="sc-photo">${L('Prendre en photo', 'Take a photo')}</button><button class="btn ghost" id="sc-what">${L("Qu'est-ce qu'il y a ici ?", "What's here?")}</button></div>
+    ${pendingHTML()}
     <div class="radar"><svg viewBox="0 0 300 300" aria-label="Radar des lieux autour de toi">
       <defs><radialGradient id="radar-g"><stop offset="0" stop-color="rgba(79,224,207,.14)"/><stop offset="1" stop-color="${document.documentElement.dataset.theme === 'light' ? 'rgba(255,255,255,.95)' : 'rgba(16,25,45,.9)'}"/></radialGradient>
       <linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="rgba(79,224,207,0)"/><stop offset="1" stop-color="rgba(79,224,207,.35)"/></linearGradient></defs>
@@ -816,6 +1088,8 @@ function renderScan() {
     ${near && near.d > 20000 ? `<p class="fine" style="margin-top:12px">${L(`Tu sembles loin de ${esc(c.name)}. Touche le nom de la ville en haut pour collectionner la ville où tu te trouves.`, `You seem far from ${esc(c.name)}. Tap the city name at the top to collect the city you are in.`)}</p>` : ''}`;
   if ($('#sc-go')) $('#sc-go').onclick = () => unlock(near.p);
   $('#sc-what').onclick = whatHere;
+  $('#sc-photo').onclick = photoHere;
+  if ($('#pd-check')) $('#pd-check').onclick = () => resolvePending(true);
   bindNav(el);
   $$('#s-scan [data-p]').forEach(g => { g.onclick = () => openPlace(g.dataset.p); g.onkeydown = e => { if (e.key === 'Enter') openPlace(g.dataset.p); }; });
 }
@@ -995,7 +1269,8 @@ function renderMoi() {
   const cities = Object.values(S.cities).sort((a, b) => nGot(b) - nGot(a));
   const ncc = new Set(cities.filter(c => nGot(c)).map(c => c.cc)).size;
   $('#s-moi').innerHTML = `
-    <div class="note" style="margin-top:6px"><b>${esc(pseudo())} · ${fmt(S.xp)} XP · ${L('niveau', 'level')} ${level()}</b><span>${L(`${nPl(totalPlaces())} dans ${nCities(cities.length)} et ${ncc} pays · série en cours : ${nDays(streakNow())}`, `${nPl(totalPlaces())} in ${nCities(cities.length)} and ${ncc} countr${ncc !== 1 ? 'ies' : 'y'} · current streak: ${nDays(streakNow())}`)}</span></div>
+    <div class="note" style="margin-top:6px"><b>${esc(pseudo())} · ${fmt(S.xp)} XP · ${L('niveau', 'level')} ${level()}${S.badges.length ? ` · ${S.badges.length} badge${S.badges.length > 1 ? 's' : ''}` : ''}</b><span>${L(`${nPl(totalPlaces())} dans ${nCities(cities.length)} et ${ncc} pays · série en cours : ${nDays(streakNow())}`, `${nPl(totalPlaces())} in ${nCities(cities.length)} and ${ncc} countr${ncc !== 1 ? 'ies' : 'y'} · current streak: ${nDays(streakNow())}`)}</span></div>
+    ${albumsHTML()}
     <form id="pf-form" class="field" style="margin-top:14px"><label for="pf-ps">${L('Pseudo (visible au classement)', 'Nickname (shown on the leaderboard)')}</label><div class="search-row"><input id="pf-ps" maxlength="20" minlength="2" value="${esc(S.pseudo)}" placeholder="${L('Ton pseudo', 'Your nickname')}"><button class="btn ghost small">${L('Enregistrer', 'Save')}</button></div></form>
     <div class="sec"><h3>${L('Mes villes', 'My cities')}</h3><span>${cities.length}</span></div>
     <div class="places">${cities.map(c => `<button class="pl ${c.id === S.current ? 'got' : 'locked'}" data-c="${c.id}"><span class="ic">${shape('columns')}</span><div><b>${esc(c.name)}</b><span>${esc(c.dep || c.country)}</span></div><span class="rt"><span class="dist">${pct(c)} %</span><span class="gem">${nGot(c)}/${c.places.length}</span></span></button>`).join('')}</div>
@@ -1011,6 +1286,8 @@ function renderMoi() {
     <p class="fine copy">${L('© 2026 Monuverse. Tous droits réservés. Le nom, le logo, le code et le design de Monuverse sont protégés ; toute copie est interdite sans autorisation.', '© 2026 Monuverse. All rights reserved. The Monuverse name, logo, code and design are protected; copying without permission is prohibited.')}</p>`;
   $('#pf-form').onsubmit = e => { e.preventDefault(); if (setPseudo($('#pf-ps').value)) { toast(L('Pseudo enregistré.', 'Nickname saved.')); renderMoi(); } };
   $$('#s-moi [data-c]').forEach(b => b.onclick = () => { S.current = b.dataset.c; save(); filter = 'tous'; go('ville'); });
+  $$('#s-moi [data-al]').forEach(b => b.onclick = () => { filter = b.dataset.al; listMax = 40; go('ville'); });
+  if ($('#al-more')) $('#al-more').onclick = () => { albumsAll = true; renderMoi(); };
   $$('#s-moi [data-th]').forEach(b => b.onclick = () => { S.theme = b.dataset.th; save(); applyTheme(); renderMoi(); });
   $$('#s-moi [data-lg]').forEach(b => b.onclick = () => { S.lang = b.dataset.lg; save(); applyLang(); renderMoi(); });
   $('#ct-here').onclick = gpsCity;
@@ -1288,6 +1565,10 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) stopG
 load();
 applyTheme();
 applyLang();
+if (albumsFresh) { for (const a of allAlbums()) if (a.done) S.albums[a.id] = Date.now(); albumsFresh = false; }
+window.addEventListener('online', () => resolvePending());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(resolvePending, 1200); });
+setTimeout(resolvePending, 2500);
 (async () => {
   const c = city();
   if (!c) { show('welcome'); return; }
