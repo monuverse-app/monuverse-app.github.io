@@ -82,3 +82,12 @@ create trigger joueurs_anti_triche before insert or update on public.joueurs
 -- Le classement public n'expose que ce qui sert à l'afficher.
 revoke all on public.joueurs from anon;
 grant select (id, pseudo, ville, ville_id, departement, pays, points, lieux) on public.joueurs to anon;
+
+-- Joueurs connectés (connexion anonyme de l'appli) : uniquement les colonnes utiles, rien d'autre.
+-- Fonctionne même si « Exposer automatiquement de nouvelles tables » est désactivé (recommandé).
+revoke all on public.joueurs from authenticated;
+grant select (id, pseudo, ville, ville_id, departement, pays, points, lieux) on public.joueurs to authenticated;
+grant insert (id, pseudo, ville, ville_id, departement, pays, points, lieux) on public.joueurs to authenticated;
+grant update (id, pseudo, ville, ville_id, departement, pays, points, lieux) on public.joueurs to authenticated;
+grant delete on public.joueurs to authenticated;
+grant usage on schema public to anon, authenticated;
