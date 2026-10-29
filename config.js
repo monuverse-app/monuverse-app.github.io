@@ -3,6 +3,6 @@
    La clé « anon » de Supabase est publique par nature : elle peut figurer ici sans risque,
    la sécurité vient des règles de la base (fichier supabase.sql). */
 window.MONUVERSE_CONFIG = {
-  supabaseUrl: '',
-  supabaseAnonKey: ''
+  supabaseUrl: 'https://lzdbudsjzizsmsynfraa.supabase.co',
+  supabaseAnonKey: 'sb_publishable_k9FMA3NPiaLj_ePdxPxRrw_QjRDEIFY'
 };
