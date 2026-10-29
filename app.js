@@ -716,6 +716,7 @@ async function openPlace(id) {
   const s = sheet(`<div class="tag">${g ? L('Dans ta collection', 'In your collection') : L('À découvrir', 'To discover')}</div>
     ${cardHTML(c, p, photo)}
     ${g ? `<p>${L('Débloqué le', 'Unlocked on')} ${new Date(c.scanned[p.id].t).toLocaleDateString(LOC(), { day: 'numeric', month: 'long', year: 'numeric' })}.</p>`
+      : near ? `<p>${L('Tu y es : débloque-le !', "You're here: unlock it!")}</p>`
       : `<p>${d !== null ? L(`À ${distTxt(d)}, ${toward(bearing(here, p))}. `, `${distTxt(d)} away, ${toward(bearing(here, p))}. `) : ''}${L(`Approche-toi à moins de ${p.rad} m pour le débloquer.`, `Get within ${p.rad} m to unlock it.`)}</p>`}
     ${!g && near ? `<button class="btn sea" id="pl-scan">${L('Débloquer ce lieu', 'Unlock this place')}</button>` : ''}
     ${g && !photo ? `<button class="btn ghost" id="pl-photo">${L('Ajouter ma photo souvenir', 'Add my souvenir photo')}</button>` : ''}
@@ -796,6 +797,7 @@ function renderScan() {
   const ir = near && inRange(near.p, me);
   el.innerHTML = `
     <div class="gps ${acc <= 30 ? 'ok' : acc <= 100 ? 'warn' : 'bad'}"><i></i><div><b>${acc <= 100 ? L('Position trouvée', 'Location found') : L('Position imprécise', 'Imprecise location')}</b> <span>· ${L('précision', 'accuracy')} ${acc} m${acc > 100 ? L(' : sors à découvert', ': move into the open') : ''}</span></div></div>
+    <button class="btn ghost what-btn" id="sc-what">${L("Qu'est-ce qu'il y a ici ?", "What's here?")}</button>
     <div class="radar"><svg viewBox="0 0 300 300" aria-label="Radar des lieux autour de toi">
       <defs><radialGradient id="radar-g"><stop offset="0" stop-color="rgba(79,224,207,.14)"/><stop offset="1" stop-color="${document.documentElement.dataset.theme === 'light' ? 'rgba(255,255,255,.95)' : 'rgba(16,25,45,.9)'}"/></radialGradient>
       <linearGradient id="sw" x1="0" x2="1"><stop offset="0" stop-color="rgba(79,224,207,0)"/><stop offset="1" stop-color="rgba(79,224,207,.35)"/></linearGradient></defs>
@@ -812,8 +814,40 @@ function renderScan() {
     </div>` : `<div class="empty">${L(`Tu as débloqué tous les lieux de ${esc(c.name)} ! Change de ville pour continuer.`, `You unlocked every place in ${esc(c.name)}! Switch city to keep going.`)}</div>`}
     ${near && near.d > 20000 ? `<p class="fine" style="margin-top:12px">${L(`Tu sembles loin de ${esc(c.name)}. Touche le nom de la ville en haut pour collectionner la ville où tu te trouves.`, `You seem far from ${esc(c.name)}. Tap the city name at the top to collect the city you are in.`)}</p>` : ''}`;
   if ($('#sc-go')) $('#sc-go').onclick = () => unlock(near.p);
+  $('#sc-what').onclick = whatHere;
   bindNav(el);
   $$('#s-scan [data-p]').forEach(g => { g.onclick = () => openPlace(g.dataset.p); g.onkeydown = e => { if (e.key === 'Enter') openPlace(g.dataset.p); }; });
+}
+/* « Qu'est-ce qu'il y a ici ? » : les lieux connus autour de toi, avec le GPS seul (marche sans réseau
+   pour toutes les villes déjà ouvertes sur ce téléphone). Le nom et le type ; la petite histoire viendra avec Monuverse+. */
+function whatHere() {
+  const me = GPS.pos;
+  if (!me) { toast(L('Position introuvable pour le moment.', 'Location not found yet.'), true); return; }
+  const all = [];
+  for (const [cid, c] of Object.entries(S.cities)) for (const p of c.places) all.push({ p, c, cid, d: dist(me, p) });
+  all.sort((a, b) => a.d - b.d);
+  let list = all.filter(x => x.d <= 250).slice(0, 8);
+  const far = !list.length;
+  if (far) list = all.filter(x => x.d <= 2000).slice(0, 3);
+  const row = ({ p, c, cid, d }) => `<button class="pl r-${p.r} ${got(c, p) ? 'got' : 'locked'}" data-w="${esc(cid)}|${esc(p.id)}">
+      <span class="ic">${shape(KINDS[p.k][1])}</span>
+      <div><b>${esc(pname(p))}</b><span>${kindLabel(p.k)}${cid !== S.current ? ` · ${esc(c.name)}` : ''}${got(c, p) ? L(' · débloqué', ' · unlocked') : ''}</span></div>
+      <span class="rt"><span class="dist">${inRange(p, me) ? L('ici', 'here') : distTxt(d)}</span><span class="gem">${inRange(p, me) ? '' : cardinal(bearing(me, p))}</span></span></button>`;
+  const online = navigator.onLine !== false;
+  const s = sheet(`<div class="tag">${L('Autour de toi', 'Around you')}</div>
+    <h3>${list.length ? (far ? L('Rien de connu juste ici. Les lieux les plus proches :', 'Nothing known right here. Nearest places:') : L("Qu'est-ce qu'il y a ici ?", "What's here?")) : L('Aucun lieu connu autour de toi', 'No known places around you')}</h3>
+    ${list.length ? `<div class="places">${list.map(row).join('')}</div>` : `<p>${online
+      ? L("Tu n'as pas encore ouvert la ville où tu te trouves. Charge-la pour voir ses lieux.", "You haven't opened the city you are in yet. Load it to see its places.")
+      : L("Sans réseau, Monuverse ne connaît que les villes déjà ouvertes sur ce téléphone. Ouvre la ville où tu es dès que tu retrouves du réseau.", 'Offline, Monuverse only knows the cities already opened on this phone. Open the city you are in as soon as you are back online.')}</p>`}
+    ${online && (!list.length || far) ? `<button class="btn gold" id="wh-city">${L('Charger la ville où je suis', 'Load the city I am in')}</button>` : ''}
+    <button class="btn ghost" data-close>${L('Fermer', 'Close')}</button>`);
+  if (s.querySelector('#wh-city')) s.querySelector('#wh-city').onclick = () => { closeSheets(); gpsCity(); };
+  s.querySelectorAll('[data-w]').forEach(b => b.onclick = () => {
+    const [cid, pid] = b.dataset.w.split('|');
+    if (!S.cities[cid]) return;
+    if (cid !== S.current) { S.current = cid; save(); refresh(); }
+    openPlace(pid);
+  });
 }
 function nearBadge() {
   const c = city(); const t = $('.tab.scan'); if (!c || !t) return;

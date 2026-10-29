@@ -359,3 +359,7 @@ a.btn { text-decoration: none; }
 .nav-pick .btn:first-child { border-color: var(--sea); }
 
 .fine.copy { margin-top: 10px; opacity: .85; }
+
+/* « Qu'est-ce qu'il y a ici ? » */
+.what-btn { width: 100%; margin: 10px 0 4px; }
+.sheet .places { max-height: 52vh; overflow-y: auto; margin: 6px 0 12px; }
