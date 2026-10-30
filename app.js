@@ -1391,7 +1391,7 @@ function applyLang() {
   $$('[data-i18n]').forEach(e => { const t = STATIC[e.dataset.i18n]; if (t) e.textContent = L(t[0], t[1]); });
   $$('[data-i18n-ph]').forEach(e => { const t = STATIC[e.dataset.i18nPh]; if (t) { e.placeholder = L(t[0], t[1]); e.setAttribute('aria-label', L(t[0], t[1])); } });
   $('#t-city').setAttribute('aria-label', L('Changer de ville', 'Change city'));
-  document.title = 'Monuverse';
+  document.title = L('Monuverse : collectionne les monuments de ta ville', 'Monuverse: collect the landmarks of your city');
   if (city() && !$('#v-main').hidden) refresh();
 }
 
