@@ -14,11 +14,12 @@ jobs:
       - name: API Wikipédia et tailles de vignettes
         run: |
           UA="Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
-          S=$(curl -s -A "$UA" -H "Origin: https://monuverse.fr" -D /tmp/h "https://fr.wikipedia.org/api/rest_v1/page/summary/Mus%C3%A9e_Gr%C3%A9vin")
+          S=$(curl -s -A "$UA" -H "Origin: https://monuverse.fr" -D /tmp/h "https://fr.wikipedia.org/api/rest_v1/page/summary/Arc_de_triomphe_de_l%27%C3%89toile")
           T=$(echo "$S" | python3 -c "import sys,json; d=json.load(sys.stdin); print((d.get('thumbnail') or {}).get('source',''), (d.get('originalimage') or {}).get('width',''))")
           echo "::notice title=1 résumé Musée Grévin::$T ; CORS=$(grep -i '^access-control-allow-origin' /tmp/h | tr -d '\r')"
           U=$(echo "$T" | cut -d' ' -f1)
-          for w in 330 500 640 960; do
+          U=${U%%\?*}
+          for w in 330 500 960; do
             V=$(echo "$U" | sed -E "s#/[0-9]+px-([^/]+)\$#/${w}px-\1#")
             c=$(curl -s -A "$UA" -o /dev/null -w "%{http_code} %{content_type} %{size_download}" -H "Origin: https://monuverse.fr" "$V")
             echo "::notice title=2 vignette ${w}px::$c"

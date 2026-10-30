@@ -633,10 +633,11 @@ function header() {
    Seules les images libres de Commons sont utilisées (jamais les images « fair use » d'un Wikipédia local).
    L'auteur et la licence sont affichés sur la fiche du lieu. Les adresses trouvées sont gardées sur le téléphone. */
 const Wiki = (() => {
-  const KEYW = 'monuverse-wiki';
+  const KEYW = 'monuverse-wiki2';
+  try { localStorage.removeItem('monuverse-wiki'); } catch (e) {}   // ancien cache (ancienne adresse des images Wikimedia)
   let m = {}; try { m = JSON.parse(localStorage.getItem(KEYW) || '{}') || {}; } catch (e) {}
   if (typeof m !== 'object' || Array.isArray(m)) m = {};
-  const IMG = /^https:\/\/upload\.wikimedia\.org\/wikipedia\/commons\/[\w\-.\/%()!,~']{6,400}$/;
+  const IMG = /^https:\/\/(upload|thumb)\.wikimedia\.org\/wikipedia\/commons\/[\w\-.\/%()!,~']{6,400}$/;
   const PAGE = /^https:\/\/([a-z][a-z\-]{1,11})\.wikipedia\.org\/wiki\/([^?#\s\/]{1,300})$/;
   for (const k of Object.keys(m)) if (!PAGE.test(k) || (m[k] && !IMG.test(m[k]))) delete m[k];
   let timer = null;
@@ -659,10 +660,10 @@ const Wiki = (() => {
         if (r.status === 404) { m[k] = ''; persist(); return null; }
         if (!r.ok) return null;
         const j = await r.json();
-        let u = (j && j.thumbnail && typeof j.thumbnail.source === 'string') ? j.thumbnail.source : '';
+        let u = (j && j.thumbnail && typeof j.thumbnail.source === 'string') ? j.thumbnail.source.split('?')[0] : '';
         if (u && !IMG.test(u)) u = '';
-        // vignette plus nette quand l'image d'origine est assez grande
-        if (u && j.originalimage && j.originalimage.width >= 640 && /\/thumb\/.+\/\d+px-[^/]+$/.test(u)) u = u.replace(/\/\d+px-([^/]+)$/, '/640px-$1');
+        // vignette plus nette quand l'image d'origine est assez grande (Wikimedia n'accepte que des tailles standard : 330, 500, 960…)
+        if (u && j.originalimage && j.originalimage.width >= 500 && /\/thumb\/.+\/\d+px-[^/]+$/.test(u)) u = u.replace(/\/\d+px-([^/]+)$/, '/500px-$1');
         m[k] = u; persist();
         return u || null;
       } catch (e) { return null; } finally { free(); delete pend[k]; }
