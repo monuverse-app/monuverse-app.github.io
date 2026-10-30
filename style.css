@@ -204,7 +204,7 @@ a.btn { text-decoration: none; }
 .lb-row .rk { font-family: var(--f-mono); color: var(--muted); font-size: 13px; }
 .lb-row .pts { font-family: var(--f-mono); font-weight: 700; }
 .lb-row span small { color: var(--muted); font-size: 12px; margin-left: 6px; }
-.lb-row.me { color: var(--gold); }
+.lb-row.mine { color: var(--gold); }
 .lb-row.top .rk { color: var(--gold); font-weight: 700; }
 .note { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; font-size: 14px; color: var(--muted); display: grid; gap: 8px; }
 .note b { color: var(--ink); }
@@ -317,7 +317,7 @@ a.btn { text-decoration: none; }
 :root[data-theme="light"] .tabbar { background: rgba(255,255,255,.88); border-top-color: var(--line); }
 :root[data-theme="light"] .tab[aria-selected="true"]:not(.scan) svg { color: var(--gold-ink); }
 :root[data-theme="light"] .tab.scan .disc { background: radial-gradient(circle at 35% 30%, #8FF2E6, #3FD3C2 55%, #16A595); box-shadow: 0 8px 22px rgba(18,168,153,.35); }
-:root[data-theme="light"] .logo span, :root[data-theme="light"] .lb-row.me, :root[data-theme="light"] .lb-row.top .rk,
+:root[data-theme="light"] .logo span, :root[data-theme="light"] .lb-row.mine, :root[data-theme="light"] .lb-row.top .rk,
 :root[data-theme="light"] .daily.done .eyebrow, :root[data-theme="light"] .rewards span.hi, :root[data-theme="light"] .daily.done .ic { color: var(--gold-ink); }
 :root[data-theme="light"] .eyebrow, :root[data-theme="light"] .tag, :root[data-theme="light"] .link { color: #0B8478; }
 :root[data-theme="light"] .rewards span.hi { border-color: var(--gold); }
@@ -400,3 +400,9 @@ a.btn { text-decoration: none; }
 .card .art img.wk { width: 100%; height: 100%; object-fit: cover; }
 .credit { font-size: 11.5px; color: var(--muted); margin: 6px 0 0; text-align: center; }
 .credit a { color: inherit; text-decoration: underline; }
+
+/* Amis */
+.invite-btn { margin-top: 12px; }
+.invite-note { margin-bottom: 12px; border-color: rgba(245,184,65,.5); }
+.seg.three.rank-seg { margin: 6px 0 14px; }
+.rank-seg button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 10px 6px; }

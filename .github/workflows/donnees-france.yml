@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - 'outils/construire_france.py'
+      - 'outils/pages_villes.py'
       - '.github/workflows/donnees-france.yml'
 
 permissions:
@@ -48,11 +49,14 @@ jobs:
       - name: Construire les fichiers
         run: python3 outils/construire_france.py /tmp/osm data/fr
 
+      - name: Pages Google par commune
+        run: python3 outils/pages_villes.py
+
       - name: Publier
         run: |
           git config user.name "Monuverse"
           git config user.email "noreply@monuverse-app.github.io"
-          git add -A data/fr
+          git add -A data/fr ville sitemap*.xml robots.txt
           if git diff --cached --quiet; then echo "Aucun changement"; exit 0; fi
           git commit -q -m "Données France et outre-mer : mise à jour $(date -u +%Y-%m-%d)"
           for i in 1 2 3 4 5; do git pull -q --rebase origin main && git push -q origin HEAD:main && exit 0; sleep 20; done

@@ -26,6 +26,7 @@ const STATIC = {
   search: ['Chercher', 'Search'],
   privacy: ["Les lieux viennent d'OpenStreetMap, la carte libre du monde. Ta position sert seulement à vérifier que tu es devant un lieu ; elle ne quitte pas ton téléphone.", "Places come from OpenStreetMap, the free map of the world. Your location is only used to check that you are at a place; it never leaves your phone."],
   copy: ['© 2026 Monuverse. Tous droits réservés.', '© 2026 Monuverse. All rights reserved.'],
+  cities: ['Les monuments de toutes les communes de France', 'Landmarks of every town in France'],
   loading: ['Recherche des lieux…', 'Looking for places…'], loadsub: ['On parcourt la carte de ta ville.', 'Scanning the map of your city.'],
   tville: ['Ma ville', 'My city'], tglobe: ['Globe', 'Globe'], tscan: ['Explorer', 'Explore'], trank: ['Classement', 'Ranking'], tmoi: ['Moi', 'Me']
 };
@@ -440,7 +441,8 @@ const KEY = 'monuverse-v1';
 const DATA_VER = 2;
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const dayBefore = s => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-let S = { v: 1, current: null, cities: {}, pseudo: '', streak: { n: 0, last: '' }, xp: 0, dailyBonus: {}, theme: 'auto', pending: [], week: null, badges: [], albums: {} };
+let S = { v: 1, current: null, cities: {}, pseudo: '', streak: { n: 0, last: '' }, xp: 0, dailyBonus: {}, theme: 'auto', pending: [], week: null, badges: [], albums: {}, amis: [], parrain: '' };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 let albumsFresh = true;   // première ouverture depuis l'arrivée des albums : ceux déjà finis sont cochés sans bonus
 function load() {
   try {
@@ -460,6 +462,8 @@ function load() {
     S.pending = Array.isArray(d.pending) ? d.pending.filter(x => x && /^pd\d{10,14}$/.test(x.id) && num(x.lat, -90, 90) && num(x.lon, -180, 180) && num(x.acc, 0, 5000) && num(x.t, 1.6e12, 4e12))
       .map(x => ({ id: x.id, lat: x.lat, lon: x.lon, acc: x.acc, t: x.t })).slice(-20) : [];
     S.week = cleanWeek(d.week);
+    S.amis = Array.isArray(d.amis) ? [...new Set(d.amis.filter(x => typeof x === 'string' && UUID.test(x)))].slice(-200) : [];
+    S.parrain = typeof d.parrain === 'string' && UUID.test(d.parrain) ? d.parrain : '';
     S.badges = Array.isArray(d.badges) ? d.badges.filter(b => typeof b === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b)).slice(-200) : [];
     if (d.albums && typeof d.albums === 'object') { albumsFresh = false; S.albums = Object.fromEntries(Object.entries(d.albums).filter(([k, v]) => /^[\w:.\-]{1,140}$/.test(k) && num(v, 0, 4e12)).slice(0, 2000)); }
   } catch (e) {}
@@ -570,8 +574,10 @@ const LB = (() => {
       const was = cur[0] || null, wantL = totalPlaces(), wantP = Math.floor(S.xp);
       const lieux = Math.min(wantL, was ? was.lieux + 5 : 10);
       const points = Math.min(wantP, was ? was.points + 1000 : 1000, lieux * 300 + 2000);
-      const row = { id: s.uid, pseudo: S.pseudo.slice(0, 20), ville: c.name.slice(0, 80), ville_id: c.id, departement: `${c.dep}|${c.cc}`.slice(0, 140), pays: c.cc, points: Math.max(points, was ? was.points : 0), lieux: Math.max(lieux, was ? was.lieux : 0) };
-      const r = await fetch(`${base}/rest/v1/joueurs?on_conflict=id`, { method: 'POST', headers: hdr({ Authorization: 'Bearer ' + s.access, Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(row) });
+      const row = { id: s.uid, ...(S.parrain && S.parrain !== s.uid ? { parrain: S.parrain } : {}), pseudo: S.pseudo.slice(0, 20), ville: c.name.slice(0, 80), ville_id: c.id, departement: `${c.dep}|${c.cc}`.slice(0, 140), pays: c.cc, points: Math.max(points, was ? was.points : 0), lieux: Math.max(lieux, was ? was.lieux : 0) };
+      const send = body => fetch(`${base}/rest/v1/joueurs?on_conflict=id`, { method: 'POST', headers: hdr({ Authorization: 'Bearer ' + s.access, Prefer: 'resolution=merge-duplicates,return=minimal' }), body: JSON.stringify(body) });
+      let r = await send(row);
+      if (!r.ok && r.status === 400 && row.parrain) { delete row.parrain; r = await send(row); }   // base pas encore mise à jour pour les amis
       if (!r.ok) { retry = setTimeout(push, 10 * 60000); throw new Error('upsert ' + r.status); }
       if (row.points < wantP || row.lieux < wantL) retry = setTimeout(push, 20000);
     } catch (e) { console.warn('classement', e); }
@@ -580,6 +586,19 @@ const LB = (() => {
     on,
     uid: () => ses && ses.uid,
     sync: () => { clearTimeout(timer); timer = setTimeout(push, 1500); },
+    async myId() { if (!on) return null; const s = await session(); return s.uid; },
+    async friends() {
+      const s = await session();
+      const r = await fetch(`${base}/rest/v1/rpc/mes_amis`, { method: 'POST', headers: hdr({ Authorization: 'Bearer ' + s.access }), body: JSON.stringify({ ids: S.amis.filter(x => x !== s.uid) }) });
+      if (!r.ok) throw new Error('amis ' + r.status);
+      return r.json();
+    },
+    async who(id) {
+      if (!on || !UUID.test(id)) return null;
+      const r = await fetch(`${base}/rest/v1/joueurs?select=pseudo&id=eq.${id}`, { headers: hdr() });
+      const j = r.ok ? await r.json() : [];
+      return j[0] ? txt(j[0].pseudo, 20) : null;
+    },
     async top(field, value) {
       const r = await fetch(`${base}/rest/v1/joueurs?select=id,pseudo,ville,points,lieux&${field}=eq.${encodeURIComponent(value)}&order=points.desc&limit=20`, { headers: hdr() });
       if (!r.ok) throw new Error('top ' + r.status);
@@ -1219,9 +1238,10 @@ async function renderRank() {
   header();
   const el = $('#s-rank');
   const dep = c.dep || c.region || c.country;
-  const top = `<div class="seg" role="group"><button data-sc="ville" aria-pressed="${rankScope === 'ville'}">${esc(c.name)}</button><button data-sc="dep" aria-pressed="${rankScope === 'dep'}">${esc(dep)}</button></div>`;
+  const top = `<div class="seg three rank-seg" role="group"><button data-sc="ville" aria-pressed="${rankScope === 'ville'}">${esc(c.name)}</button><button data-sc="dep" aria-pressed="${rankScope === 'dep'}">${esc(dep)}</button><button data-sc="amis" aria-pressed="${rankScope === 'amis'}">${L('Amis', 'Friends')}</button></div>`;
+  const inviteBtn = `<button class="btn gold invite-btn" id="rk-invite">${L('Inviter des amis', 'Invite friends')}</button>`;
   const mine = `<div class="note"><b>${esc(pseudo())} · ${fmt(S.xp)} points</b><span>${L(`${nPl(totalPlaces())} débloqué${totalPlaces() > 1 ? 's' : ''} · niveau ${level()} · série de ${nDays(streakNow())}`, `${nPl(totalPlaces())} unlocked · level ${level()} · ${nDays(streakNow())} streak`)}</span></div>`;
-  const bind = () => $$('#s-rank [data-sc]').forEach(b => b.onclick = () => { rankScope = b.dataset.sc; renderRank(); });
+  const bind = () => { $$('#s-rank [data-sc]').forEach(b => b.onclick = () => { rankScope = b.dataset.sc; renderRank(); }); if ($('#rk-invite')) $('#rk-invite').onclick = inviteFriends; };
   if (!S.pseudo) {
     el.innerHTML = top + `<div class="note" style="margin-bottom:12px"><b>${L('Choisis ton pseudo pour entrer au classement', 'Pick a nickname to join the leaderboard')}</b><span>${L('Il sera visible par les autres joueurs. Pas ton vrai nom de famille !', 'Other players will see it. Not your real surname!')}</span>
       <form id="rk-form" class="search-row"><input id="rk-ps" maxlength="20" minlength="2" required placeholder="${L('Ton pseudo', 'Your nickname')}" aria-label="${L('Ton pseudo', 'Your nickname')}"><button class="btn gold small">${L('Valider', 'OK')}</button></form></div>` + mine;
@@ -1233,17 +1253,55 @@ async function renderRank() {
     el.innerHTML = top + mine + `<div class="note" style="margin-top:12px"><b>${L('Le classement en ligne ouvre bientôt', 'The online leaderboard opens soon')}</b><span>${L("Continue à collectionner : tes points comptent déjà et apparaîtront dès l'ouverture.", 'Keep collecting: your points already count and will show up as soon as it opens.')}</span></div>`;
     bind(); return;
   }
-  el.innerHTML = top + `<div class="lb" id="lb"><div class="spinner" style="margin:30px auto"></div></div>` + mine;
+  el.innerHTML = top + `<div class="lb" id="lb"><div class="spinner" style="margin:30px auto"></div></div>` + mine + inviteBtn;
   bind();
   try {
     LB.sync();
-    const rows = rankScope === 'ville' ? await LB.top('ville_id', c.id) : await LB.top('departement', `${c.dep}|${c.cc}`);
+    const rows = rankScope === 'ville' ? await LB.top('ville_id', c.id) : rankScope === 'dep' ? await LB.top('departement', `${c.dep}|${c.cc}`) : await LB.friends();
     const me = LB.uid();
-    $('#lb').innerHTML = rows.length ? rows.map((r, i) => `<div class="lb-row ${r.id === me ? 'me' : ''} ${i < 3 ? 'top' : ''}"><span class="rk">${i + 1}</span><span>${esc(r.pseudo)}${rankScope === 'dep' ? `<small>${esc(r.ville)}</small>` : ''}</span><span class="pts">${fmt(r.points)}</span></div>`).join('')
+    if (rankScope === 'amis' && rows.filter(r => r.id !== me).length === 0) {
+      $('#lb').innerHTML = `<div class="empty">${L('Pas encore d\'amis ici. Envoie ton lien d\'invitation : chaque ami qui le suit apparaît dans ce classement, et toi dans le sien.', 'No friends here yet. Send your invite link: every friend who follows it shows up here, and you in theirs.')}</div>`;
+      return;
+    }
+    $('#lb').innerHTML = rows.length ? rows.map((r, i) => `<div class="lb-row ${r.id === me ? 'mine' : ''} ${i < 3 ? 'top' : ''}"><span class="rk">${i + 1}</span><span>${esc(txt(r.pseudo, 20))}${rankScope !== 'ville' ? `<small>${esc(txt(r.ville, 80))}</small>` : ''}</span><span class="pts">${fmt(num(r.points, 0, 1e7) ? r.points : 0)}</span></div>`).join('')
       : `<div class="empty">${L(`Personne encore ici. Débloque un lieu et deviens le premier collectionneur de ${esc(rankScope === 'ville' ? c.name : dep)} !`, `Nobody here yet. Unlock a place and become the first collector in ${esc(rankScope === 'ville' ? c.name : dep)}!`)}</div>`;
   } catch (e) {
     $('#lb').innerHTML = `<div class="empty">${L("Le classement n'a pas pu être chargé. Vérifie ta connexion.", 'The leaderboard could not be loaded. Check your connection.')}</div>`;
   }
+}
+/* Lien d'invitation : monuverse.fr/?ami=<identifiant>. L'ami qui le suit et toi apparaissez dans vos classements « Amis ». */
+async function inviteFriends() {
+  if (!LB.on) { toast(L('Le classement en ligne ouvre bientôt.', 'The online leaderboard opens soon.'), true); return; }
+  if (!S.pseudo) { rankScope = 'amis'; go('rank'); toast(L("Choisis d'abord ton pseudo : c'est lui que tes amis verront.", 'Pick a nickname first: that is what your friends will see.'), true); return; }
+  let id; try { id = await LB.myId(); } catch (e) {}
+  if (!id) { toast(L("Pas de réseau pour créer ton lien d'invitation. Réessaie dans un instant.", 'No network to create your invite link. Try again in a moment.'), true); return; }
+  LB.sync();
+  const url = `https://monuverse.fr/?ami=${id}`;
+  const text = L(`${S.pseudo} t'invite sur Monuverse : collectionne les monuments de ta ville et défie-moi au classement !`, `${S.pseudo} invites you to Monuverse: collect the landmarks of your city and challenge me on the leaderboard!`);
+  try { if (navigator.share) { await navigator.share({ title: 'Monuverse', text, url }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+  try { await navigator.clipboard.writeText(`${text} ${url}`); toast(L('Lien copié : colle-le dans un message à tes amis.', 'Link copied: paste it in a message to your friends.')); }
+  catch (e) { sheet(`<div class="tag">${L("Ton lien d'invitation", 'Your invite link')}</div><p style="word-break:break-all"><b>${esc(url)}</b></p><button class="btn gold" data-close>OK</button>`); }
+}
+/* Arrivée par un lien : ?ami=… (invitation) ou ?ville=fr12345 (page d'une ville) */
+const ARRIVAL = (() => {
+  let q; try { q = new URLSearchParams(location.search); } catch (e) { return {}; }
+  const out = { ami: (q.get('ami') || '').toLowerCase(), ville: q.get('ville') || '' };
+  if (!UUID.test(out.ami)) out.ami = '';
+  if (!/^fr[0-9AB]{5}$/.test(out.ville)) out.ville = '';
+  if (q.has('ami') || q.has('ville')) try { history.replaceState(null, '', location.pathname); } catch (e) {}
+  return out;
+})();
+async function welcomeInvite() {
+  if (!ARRIVAL.ami) return;
+  const me = LB.uid();
+  if (ARRIVAL.ami === me) return;
+  if (!S.parrain) S.parrain = ARRIVAL.ami;   // le premier qui t'invite : vous vous voyez l'un l'autre (le parrain ne change plus ensuite)
+  if (!S.amis.includes(ARRIVAL.ami)) S.amis = S.amis.concat(ARRIVAL.ami).slice(-200);
+  save(); LB.sync();
+  let who = null; try { who = await LB.who(ARRIVAL.ami); } catch (e) {}
+  const msg = who ? L(`${who} t'invite à collectionner les monuments de ta ville !`, `${who} invites you to collect the landmarks of your city!`) : L('Un ami t\'invite à collectionner les monuments de ta ville !', 'A friend invites you to collect the landmarks of your city!');
+  if (!$('#v-welcome').hidden) { const b = document.createElement('div'); b.className = 'note invite-note'; b.innerHTML = `<b>${esc(msg)}</b><span>${L('Vous serez dans le classement « Amis » l\'un de l\'autre.', 'You will be in each other\'s “Friends” leaderboard.')}</span>`; $('#v-welcome .wel-card').prepend(b); }
+  else toast(who ? L(`${who} est maintenant dans tes amis.`, `${who} is now in your friends.`) : L('Ami ajouté.', 'Friend added.'));
 }
 function setPseudo(v) {
   v = String(v || '').trim().replace(/\s+/g, ' ').slice(0, 20);
@@ -1357,6 +1415,7 @@ function renderMoi() {
     <form id="pf-form" class="field" style="margin-top:14px"><label for="pf-ps">${L('Pseudo (visible au classement)', 'Nickname (shown on the leaderboard)')}</label><div class="search-row"><input id="pf-ps" maxlength="20" minlength="2" value="${esc(S.pseudo)}" placeholder="${L('Ton pseudo', 'Your nickname')}"><button class="btn ghost small">${L('Enregistrer', 'Save')}</button></div></form>
     <div class="sec"><h3>${L('Mes villes', 'My cities')}</h3><span>${cities.length}</span></div>
     <div class="places">${cities.map(c => `<button class="pl ${c.id === S.current ? 'got' : 'locked'}" data-c="${c.id}"><span class="ic">${shape('columns')}</span><div><b>${esc(c.name)}</b><span>${esc(c.dep || c.country)}</span></div><span class="rt"><span class="dist">${pct(c)} %</span><span class="gem">${nGot(c)}/${c.places.length}</span></span></button>`).join('')}</div>
+    <button class="btn ghost" id="pf-invite" style="margin-top:14px">${L('Inviter des amis', 'Invite friends')}</button>
     <div class="row2" style="margin-top:10px"><button class="btn gold" id="ct-here">${L('La ville où je suis', 'The city I am in')}</button><button class="btn ghost" id="ct-add">${L('Chercher une ville', 'Find a city')}</button></div>
     <div class="sec"><h3>${L('Réglages', 'Settings')}</h3></div>
     <div class="field"><span>${L('Langue', 'Language')}</span><div class="seg three" role="group" aria-label="${L('Langue', 'Language')}">${[['auto', 'Auto'], ['fr', 'Français'], ['en', 'English']].map(([k, l]) => `<button data-lg="${k}" aria-pressed="${(S.lang || 'auto') === k}">${l}</button>`).join('')}</div></div>
@@ -1374,6 +1433,7 @@ function renderMoi() {
   $$('#s-moi [data-th]').forEach(b => b.onclick = () => { S.theme = b.dataset.th; save(); applyTheme(); renderMoi(); });
   $$('#s-moi [data-lg]').forEach(b => b.onclick = () => { S.lang = b.dataset.lg; save(); applyLang(); renderMoi(); });
   $('#ct-here').onclick = gpsCity;
+  $('#pf-invite').onclick = inviteFriends;
   $('#ct-add').onclick = () => welcome(true);
   $('#pf-refresh').onclick = () => loadCity(city(), { force: true });
   $('#pf-wipe').onclick = () => {
@@ -1653,6 +1713,13 @@ window.addEventListener('online', () => resolvePending());
 document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(resolvePending, 1200); });
 setTimeout(resolvePending, 2500);
 (async () => {
+  setTimeout(welcomeInvite, 0);
+  if (ARRIVAL.ville) {
+    try {
+      const j = await loadFR(), row = j.communes.find(r => 'fr' + r[0] === ARRIVAL.ville);
+      if (row) { await loadCity(frCity(j, row)); return; }
+    } catch (e) {}
+  }
   const c = city();
   if (!c) { show('welcome'); return; }
   // Une ville de France enregistrée avant les données préparées : on la rattache à sa commune

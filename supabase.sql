@@ -91,3 +91,5 @@ grant insert (id, pseudo, ville, ville_id, departement, pays, points, lieux) on 
 grant update (id, pseudo, ville, ville_id, departement, pays, points, lieux) on public.joueurs to authenticated;
 grant delete on public.joueurs to authenticated;
 grant usage on schema public to anon, authenticated;
+
+-- Amis et invitations : voir supabase-amis.sql (à exécuter aussi).
