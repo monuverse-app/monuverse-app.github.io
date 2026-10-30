@@ -1,0 +1,22 @@
+name: Test du site en ligne
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Pages visibles par Google
+        run: |
+          for u in / /ville/ /ville/d-94/ /ville/limeil-brevannes-94044/ /ville/le-havre-76351/ /ville/paris-75056/ /sitemap.xml /sitemap-1.xml /robots.txt /ville/ville.css; do
+            r=$(curl -s -o /tmp/p -w "%{http_code} %{size_download}" "https://monuverse.fr$u")
+            t=$(grep -o "<title>[^<]*</title>" /tmp/p | head -1)
+            echo "::notice title=$u::$r $t"
+          done
+          n=$(curl -s https://monuverse.fr/sitemap-1.xml | grep -c "<loc>")
+          echo "::notice title=plan du site::$n adresses"
