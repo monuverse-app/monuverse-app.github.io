@@ -628,6 +628,76 @@ function header() {
   $('#t-me').textContent = pseudo().slice(0, 1).toUpperCase();
 }
 
+
+/* ---------- Photos libres des lieux (Wikipédia → Wikimedia Commons) ----------
+   Seules les images libres de Commons sont utilisées (jamais les images « fair use » d'un Wikipédia local).
+   L'auteur et la licence sont affichés sur la fiche du lieu. Les adresses trouvées sont gardées sur le téléphone. */
+const Wiki = (() => {
+  const KEYW = 'monuverse-wiki';
+  let m = {}; try { m = JSON.parse(localStorage.getItem(KEYW) || '{}') || {}; } catch (e) {}
+  if (typeof m !== 'object' || Array.isArray(m)) m = {};
+  const IMG = /^https:\/\/upload\.wikimedia\.org\/wikipedia\/commons\/[\w\-.\/%()!,~']{6,400}$/;
+  const PAGE = /^https:\/\/([a-z][a-z\-]{1,11})\.wikipedia\.org\/wiki\/([^?#\s\/]{1,300})$/;
+  for (const k of Object.keys(m)) if (!PAGE.test(k) || (m[k] && !IMG.test(m[k]))) delete m[k];
+  let timer = null;
+  const persist = () => { clearTimeout(timer); timer = setTimeout(() => { try { const ks = Object.keys(m); ks.slice(0, Math.max(0, ks.length - 4000)).forEach(k => delete m[k]); localStorage.setItem(KEYW, JSON.stringify(m)); } catch (e) {} }, 500); };
+  let running = 0; const queue = [];
+  const slot = () => new Promise(res => { if (running < 6) { running++; res(); } else queue.push(res); });
+  const free = () => { const n = queue.shift(); if (n) n(); else running--; };
+  const pend = {};
+  function thumb(p) {
+    if (!p || !p.w) return Promise.resolve(null);
+    const mm = PAGE.exec(p.w); if (!mm) return Promise.resolve(null);
+    const k = p.w;
+    if (k in m) return Promise.resolve(m[k] || null);
+    if (pend[k]) return pend[k];
+    if (navigator.onLine === false) return Promise.resolve(null);
+    return pend[k] = (async () => {
+      await slot();
+      try {
+        const r = await fetch(`https://${mm[1]}.wikipedia.org/api/rest_v1/page/summary/${mm[2]}`, { headers: { Accept: 'application/json' } });
+        if (r.status === 404) { m[k] = ''; persist(); return null; }
+        if (!r.ok) return null;
+        const j = await r.json();
+        let u = (j && j.thumbnail && typeof j.thumbnail.source === 'string') ? j.thumbnail.source : '';
+        if (u && !IMG.test(u)) u = '';
+        // vignette plus nette quand l'image d'origine est assez grande
+        if (u && j.originalimage && j.originalimage.width >= 640 && /\/thumb\/.+\/\d+px-[^/]+$/.test(u)) u = u.replace(/\/\d+px-([^/]+)$/, '/640px-$1');
+        m[k] = u; persist();
+        return u || null;
+      } catch (e) { return null; } finally { free(); delete pend[k]; }
+    })();
+  }
+  const credits = {};
+  async function credit(u) {
+    const mm = /\/wikipedia\/commons\/(?:thumb\/)?[0-9a-f]\/[0-9a-f]{2}\/([^/]+)/.exec(u || ''); if (!mm) return null;
+    let file; try { file = decodeURIComponent(mm[1]); } catch (e) { return null; }
+    if (file in credits) return credits[file];
+    const plain = h => txt(new DOMParser().parseFromString(String(h || ''), 'text/html').body.textContent || '', 90);   // DOMParser n'exécute rien
+    try {
+      const r = await fetch(`https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&prop=imageinfo&iiprop=extmetadata&titles=${encodeURIComponent('File:' + file)}`);
+      const j = await r.json();
+      const pg = j && j.query && j.query.pages && Object.values(j.query.pages)[0];
+      const md = (pg && pg.imageinfo && pg.imageinfo[0] && pg.imageinfo[0].extmetadata) || {};
+      return credits[file] = { artist: plain(md.Artist && md.Artist.value), lic: plain(md.LicenseShortName && md.LicenseShortName.value).slice(0, 40), page: 'https://commons.wikimedia.org/wiki/File:' + encodeURIComponent(file.replace(/ /g, '_')) };
+    } catch (e) { return credits[file] = null; }
+  }
+  return { thumb, credit };
+})();
+/* Remplit les vignettes [data-wk] avec la photo Wikimedia ; une photo souvenir du joueur reste toujours prioritaire */
+function fillWiki(root, c) {
+  if (!root || !c) return;
+  root.querySelectorAll('[data-wk]').forEach(el => {
+    const p = c.places.find(x => x.id === el.dataset.wk); if (!p) return;
+    Wiki.thumb(p).then(u => {
+      if (!u || !el.isConnected || el.querySelector('img')) return;
+      const img = new Image(); img.alt = ''; img.decoding = 'async'; img.referrerPolicy = 'no-referrer'; img.className = 'wk';
+      img.onload = () => { if (el.isConnected && !el.querySelector('img')) { el.textContent = ''; el.appendChild(img); } };
+      img.src = u;
+    });
+  });
+}
+
 /* ---------- Écran : Ma ville ---------- */
 let filter = 'tous', listMax = 40;
 function ringSVG(p, size = 112) {
@@ -639,7 +709,7 @@ function ringSVG(p, size = 112) {
 function placeRow(c, p, here) {
   const g = got(c, p), d = here ? dist(here, p) : null, isDaily = dailyPlace(c) === p;
   return `<button class="pl r-${p.r} ${g ? 'got' : 'locked'} ${isDaily && !g ? 'today' : ''}" data-p="${p.id}">
-    <span class="ic" data-ph="${g ? p.id : ''}">${shape(KINDS[p.k][1])}</span>
+    <span class="ic" data-ph="${g ? p.id : ''}"${p.w ? ` data-wk="${p.id}"` : ''}>${shape(KINDS[p.k][1])}</span>
     <div><b>${esc(pname(p))}</b><span>${kindLabel(p.k)}${isDaily && !g ? L(' · lieu du jour ×2', ' · place of the day ×2') : ''}${g ? L(' · débloqué', ' · unlocked') : ''}</span></div>
     <span class="rt">${d !== null ? `<span class="dist">${distTxt(d)}</span>` : ''}<span class="gem">${rarLabel(p.r)}</span></span></button>`;
 }
@@ -685,14 +755,15 @@ function renderVille() {
   $('#v-explore').onclick = () => go('scan');
   $$('#s-ville [data-wk]').forEach(b => b.onclick = () => { filter = b.dataset.wk; listMax = 40; renderVille(); $('#s-ville .chips').scrollIntoView({ behavior: calm() ? 'auto' : 'smooth', block: 'start' }); });
   fillPhotos($('#s-ville'));
+  fillWiki($('#s-ville'), c);
 }
 
 /* ---------- Fiche d'un lieu ---------- */
 function cardHTML(c, p, photo, reveal) {
   const i = c.places.indexOf(p) + 1;
-  return `<div class="card r-${p.r} ${p.r} ${reveal ? 'reveal' : ''}"><div class="card-in">
+  return `<div class="card r-${p.r} ${p.r} ${reveal ? 'reveal' : ''} ${got(c, p) ? '' : 'locked-art'}"><div class="card-in">
     <div class="ct"><span>#${String(i).padStart(3, '0')}</span><span>${esc(c.name.toUpperCase())}</span></div>
-    <div class="art">${photo ? `<img src="${photo}" alt="${L('Ta photo de', 'Your photo of')} ${esc(pname(p))}">` : shape(KINDS[p.k][1])}</div>
+    <div class="art"${!photo && p.w ? ` data-wk="${p.id}"` : ''}>${photo ? `<img src="${photo}" alt="${L('Ta photo de', 'Your photo of')} ${esc(pname(p))}">` : shape(KINDS[p.k][1])}</div>
     <div class="rar">${rarLabel(p.r)} · +${RAR[p.r][1]} XP</div>
     <div class="nm">${esc(pname(p))}</div>
     <div class="fact">${kindFact(p.k)}</div></div></div>`;
@@ -725,6 +796,7 @@ async function openPlace(id) {
   const d = here ? dist(here, p) : null, near = here && inRange(p, here);
   const s = sheet(`<div class="tag">${g ? L('Dans ta collection', 'In your collection') : L('À découvrir', 'To discover')}</div>
     ${cardHTML(c, p, photo)}
+    <p class="credit" hidden></p>
     ${g ? `<p>${L('Débloqué le', 'Unlocked on')} ${new Date(c.scanned[p.id].t).toLocaleDateString(LOC(), { day: 'numeric', month: 'long', year: 'numeric' })}.</p>`
       : near ? `<p>${L('Tu y es : débloque-le !', "You're here: unlock it!")}</p>`
       : `<p>${d !== null ? L(`À ${distTxt(d)}, ${toward(bearing(here, p))}. `, `${distTxt(d)} away, ${toward(bearing(here, p))}. `) : ''}${L(`Approche-toi à moins de ${p.rad} m pour le débloquer.`, `Get within ${p.rad} m to unlock it.`)}</p>`}
@@ -733,6 +805,15 @@ async function openPlace(id) {
     <div class="nav-wrap">${navHTML(p)}</div>
     <div class="row2">${p.w ? `<a class="btn ghost" href="${p.w}" target="_blank" rel="noopener">${L('En savoir plus', 'Learn more')}</a>` : ''}<button class="btn ghost" data-close ${p.w ? '' : 'style="grid-column:1/-1"'}>${L('Fermer', 'Close')}</button></div>`);
   bindNav(s);
+  if (!photo && p.w) {
+    fillWiki(s, c);
+    Wiki.thumb(p).then(async u => {
+      if (!u || !s.isConnected) return;
+      const cr = await Wiki.credit(u), el = s.querySelector('.credit'); if (!el) return;
+      el.innerHTML = `${L('Photo', 'Photo')} : <a href="${esc(cr ? cr.page : p.w)}" target="_blank" rel="noopener">${esc((cr && cr.artist) || 'Wikimedia Commons')}</a>${cr && cr.lic ? ` · ${esc(cr.lic)}` : ''} · Wikimedia Commons`;
+      el.hidden = false;
+    });
+  }
   if ($('#pl-scan')) $('#pl-scan').onclick = () => unlock(p);
   if ($('#pl-photo')) $('#pl-photo').onclick = async () => { const f = await askPhoto(); if (!f) return; try { await PhotoDB.put(p.id, await shrink(f)); s.remove(); openPlace(p.id); refresh(); } catch (e) { toast(L("La photo n'a pas pu être enregistrée.", 'The photo could not be saved.'), true); } };
 }
@@ -775,12 +856,13 @@ async function unlock(p, gift = false, o = {}) {
   const url = await PhotoDB.url(p.id);
   const burst = calm() ? '' : `<div class="burst" aria-hidden="true">${Array.from({ length: 22 }, (_, k) => `<i style="--a:${k * 360 / 22}deg;--r:${110 + (k * 37) % 70}px;--c:${['#F5B841', '#4FE0CF', '#B07CF2', '#FFE2A0'][k % 4]}"></i>`).join('')}</div>`;
   const when = new Date(at).toLocaleDateString(LOC(), { day: 'numeric', month: 'long' });
-  sheet(`<div class="tag">${gift ? L('Cadeau de bienvenue', 'Welcome gift') : o.verified ? L(`Ta photo du ${when} · lieu débloqué`, `Your photo from ${when} · place unlocked`) : L('Nouveau lieu débloqué', 'New place unlocked')}</div>${burst}
+  const rs = sheet(`<div class="tag">${gift ? L('Cadeau de bienvenue', 'Welcome gift') : o.verified ? L(`Ta photo du ${when} · lieu débloqué`, `Your photo from ${when} · place unlocked`) : L('Nouveau lieu débloqué', 'New place unlocked')}</div>${burst}
     ${cardHTML(c, p, url, true)}
     <div class="rewards"><span class="hi">+${xp} XP</span>${daily ? `<span>${L('Lieu du jour ×2', 'Place of the day ×2')}</span>` : ''}${!gift && (late ? streakNow() > streak0 : !had) ? `<span>${L('Série : ', 'Streak: ')}${nDays(streakNow())}</span>` : ''}${level() > lv0 ? `<span class="hi">${L(`Niveau ${level()} !`, `Level ${level()}!`)}</span>` : ''}${extra.map(e => `<span class="hi">${e}</span>`).join('')}</div>
     <p>${L(`${nPl(nGot(c))} sur ${c.places.length} à ${esc(c.name)}`, `${nGot(c)} of ${nPl(c.places.length)} in ${esc(c.name)}`)} · ${p0}${L(' %', '%')}</p>
     <div class="row2"><button class="btn ghost" id="r-share">${L('Partager', 'Share')}</button><button class="btn gold" data-close>${L('Continuer', 'Continue')}</button></div>`, () => { refresh(); if (o.after) o.after(); });
   $('#r-share').onclick = shareStory;
+  if (!url) fillWiki(rs, c);
   refresh();
 }
 function refresh() { header(); ({ ville: renderVille, scan: renderScan, rank: renderRank, globe: renderGlobe, moi: renderMoi })[tab](); }
@@ -1282,7 +1364,7 @@ function renderMoi() {
       <button class="btn ghost" id="pf-refresh">${L('Mettre à jour les lieux de', 'Refresh the places of')} ${esc(city().name)}</button>
       <button class="btn ghost" id="pf-wipe">${L('Effacer toutes mes données', 'Delete all my data')}</button>
     </div>
-    <p class="fine" style="margin-top:14px">${L('Tes collections et tes photos restent sur ce téléphone. Seuls ton pseudo, ta ville et tes points sont envoyés au classement. Lieux © contributeurs OpenStreetMap (ODbL).', 'Your collections and photos stay on this phone. Only your nickname, city and points are sent to the leaderboard. Places © OpenStreetMap contributors (ODbL).')}</p>
+    <p class="fine" style="margin-top:14px">${L('Tes collections et tes photos restent sur ce téléphone. Seuls ton pseudo, ta ville et tes points sont envoyés au classement. Lieux © contributeurs OpenStreetMap (ODbL). Photos des lieux : Wikimedia Commons, auteurs crédités sur chaque fiche.', 'Your collections and photos stay on this phone. Only your nickname, city and points are sent to the leaderboard. Places © OpenStreetMap contributors (ODbL). Place photos: Wikimedia Commons, authors credited on each card.')}</p>
     <p class="fine copy">${L('© 2026 Monuverse. Tous droits réservés. Le nom, le logo, le code et le design de Monuverse sont protégés ; toute copie est interdite sans autorisation.', '© 2026 Monuverse. All rights reserved. The Monuverse name, logo, code and design are protected; copying without permission is prohibited.')}</p>`;
   $('#pf-form').onsubmit = e => { e.preventDefault(); if (setPseudo($('#pf-ps').value)) { toast(L('Pseudo enregistré.', 'Nickname saved.')); renderMoi(); } };
   $$('#s-moi [data-c]').forEach(b => b.onclick = () => { S.current = b.dataset.c; save(); filter = 'tous'; go('ville'); });
